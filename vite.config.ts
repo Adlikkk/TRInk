@@ -8,6 +8,10 @@ export default defineConfig({
     port: 1420,
     strictPort: true
   },
+  test: {
+    include: ["src/**/*.test.ts"],
+    exclude: ["**/node_modules/**", "**/.pnpm-store/**", "**/dist/**", "**/src-tauri/**"]
+  },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: ["es2021", "chrome105", "safari13"]

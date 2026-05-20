@@ -1,8 +1,15 @@
 import type { ToolKind, ToolMode } from "./drawables";
 
 export type OverlayInteractionMode = "draw" | "click-through";
+export const SETTINGS_VERSION = 1;
+
+export type ToolbarPosition = {
+  x: number;
+  y: number;
+};
 
 export type AppSettings = {
+  settingsVersion: number;
   defaultColor: string;
   strokeWidth: number;
   opacity: number;
@@ -13,9 +20,11 @@ export type AppSettings = {
   toolMode: ToolMode;
   startMinimized: boolean;
   alwaysOnTop: boolean;
+  toolbarPosition: ToolbarPosition;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  settingsVersion: SETTINGS_VERSION,
   defaultColor: "#3B82F6",
   strokeWidth: 3,
   opacity: 0.9,
@@ -34,5 +43,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultTool: "pen",
   toolMode: "basic",
   startMinimized: false,
-  alwaysOnTop: true
+  alwaysOnTop: true,
+  toolbarPosition: { x: 24, y: 24 }
 };

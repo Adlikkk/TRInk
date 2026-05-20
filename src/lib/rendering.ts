@@ -7,6 +7,7 @@ import type {
   PreviewShape,
   TrendPattern
 } from "../types/drawables";
+import { sanitizeDrawable } from "./drawable-validation";
 import { normalizeRect } from "./geometry";
 
 function applyStyle(ctx: CanvasRenderingContext2D, style: DrawingStyle) {
@@ -168,53 +169,63 @@ function renderBinaryMarker(ctx: CanvasRenderingContext2D, marker: BinaryMarker)
 }
 
 export function renderDrawable(ctx: CanvasRenderingContext2D, drawable: Drawable) {
-  ctx.save();
-  applyStyle(ctx, drawable.style);
+  const safeDrawable = sanitizeDrawable(drawable);
+  if (!safeDrawable) {
+    return;
+  }
 
-  switch (drawable.type) {
+  ctx.save();
+  applyStyle(ctx, safeDrawable.style);
+
+  switch (safeDrawable.type) {
     case "freehand":
-      drawPolyline(ctx, drawable.points);
+      drawPolyline(ctx, safeDrawable.points);
       break;
     case "arrow":
       ctx.beginPath();
-      ctx.moveTo(drawable.start.x, drawable.start.y);
-      ctx.lineTo(drawable.end.x, drawable.end.y);
+      ctx.moveTo(safeDrawable.start.x, safeDrawable.start.y);
+      ctx.lineTo(safeDrawable.end.x, safeDrawable.end.y);
       ctx.stroke();
-      drawArrowHead(ctx, drawable.start, drawable.end, Math.max(10, drawable.style.strokeWidth * 3));
+      drawArrowHead(
+        ctx,
+        safeDrawable.start,
+        safeDrawable.end,
+        Math.max(10, safeDrawable.style.strokeWidth * 3)
+      );
       break;
     case "rectangle": {
-      const rect = normalizeRect(drawable.start, drawable.end);
+      const rect = normalizeRect(safeDrawable.start, safeDrawable.end);
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
       break;
     }
     case "support_resistance_zone": {
-      const rect = normalizeRect(drawable.start, drawable.end);
-      ctx.fillStyle = drawable.style.fillColor ?? drawable.style.strokeColor;
-      ctx.globalAlpha = drawable.style.opacity * 0.18;
+      const rect = normalizeRect(safeDrawable.start, safeDrawable.end);
+      ctx.fillStyle = safeDrawable.style.fillColor ?? safeDrawable.style.strokeColor;
+      ctx.globalAlpha = Math.max(0.08, safeDrawable.style.opacity * 0.18);
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-      ctx.globalAlpha = drawable.style.opacity;
+      ctx.globalAlpha = safeDrawable.style.opacity;
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-      drawTextTag(ctx, drawable.label, { x: rect.x + rect.width / 2, y: rect.y + 28 }, drawable.style);
+      drawTextTag(ctx, safeDrawable.label, { x: rect.x + rect.width / 2, y: rect.y + 28 }, safeDrawable.style);
       break;
     }
     case "text":
-      ctx.font = `600 ${drawable.fontSize}px Segoe UI`;
-      ctx.fillText(drawable.text, drawable.point.x, drawable.point.y);
+      ctx.font = `600 ${safeDrawable.fontSize}px Segoe UI`;
+      ctx.fillText(safeDrawable.text, safeDrawable.point.x, safeDrawable.point.y);
       break;
     case "trend":
-      drawPolyline(ctx, drawable.points);
-      if (drawable.showArrows && drawable.points.length > 1) {
-        const last = drawable.points[drawable.points.length - 1];
-        const prev = drawable.points[drawable.points.length - 2];
-        drawArrowHead(ctx, prev, last, Math.max(10, drawable.style.strokeWidth * 3));
+      drawPolyline(ctx, safeDrawable.points);
+      if (safeDrawable.showArrows && safeDrawable.points.length > 1) {
+        const last = safeDrawable.points[safeDrawable.points.length - 1];
+        const prev = safeDrawable.points[safeDrawable.points.length - 2];
+        drawArrowHead(ctx, prev, last, Math.max(10, safeDrawable.style.strokeWidth * 3));
       }
-      renderTrendLabels(ctx, drawable);
+      renderTrendLabels(ctx, safeDrawable);
       break;
     case "channel":
-      renderChannel(ctx, drawable);
+      renderChannel(ctx, safeDrawable);
       break;
     case "binary_marker":
-      renderBinaryMarker(ctx, drawable);
+      renderBinaryMarker(ctx, safeDrawable);
       break;
   }
 

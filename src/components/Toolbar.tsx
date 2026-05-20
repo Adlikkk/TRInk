@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent } from "react";
 import { Eye, EyeOff, Redo2, Settings2, Trash2, Undo2 } from "lucide-react";
+import { clampToolbarPosition } from "../lib/settings-store";
 import { TOOL_DEFINITIONS } from "../lib/tool-definitions";
 import type { ToolKind } from "../types/drawables";
 import type { DrawingAction, DrawingState } from "../state/drawing-state";
@@ -39,12 +40,13 @@ export function Toolbar({ state, dispatch, settings, setSettings }: ToolbarProps
     if (!dragOffset.current) {
       return;
     }
+    const position = clampToolbarPosition({
+      x: event.clientX - dragOffset.current.x,
+      y: event.clientY - dragOffset.current.y
+    });
     dispatch({
       type: "set-toolbar-position",
-      position: {
-        x: Math.max(12, event.clientX - dragOffset.current.x),
-        y: Math.max(12, event.clientY - dragOffset.current.y)
-      }
+      position
     });
   };
 
@@ -117,7 +119,7 @@ export function Toolbar({ state, dispatch, settings, setSettings }: ToolbarProps
               onClick={() => setTool(tool.id)}
               className={`flex h-16 flex-col items-center justify-center rounded-xl border text-xs transition ${
                 active
-                  ? "border-blue-500 bg-blue-500/15 text-blue-200"
+                  ? "border-blue-500 bg-blue-500/15 text-blue-200 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.16)]"
                   : "border-slate-800 bg-slate-900/70 text-slate-300 hover:border-slate-700 hover:bg-slate-900"
               }`}
               title={tool.label}
@@ -133,7 +135,8 @@ export function Toolbar({ state, dispatch, settings, setSettings }: ToolbarProps
         <button
           type="button"
           onClick={() => dispatch({ type: "undo" })}
-          className="flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-slate-300 transition hover:border-slate-700 hover:text-white"
+          disabled={state.undoStack.length === 0}
+          className="flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-slate-300 transition hover:border-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           title="Undo"
         >
           <Undo2 className="h-4 w-4" />
@@ -141,7 +144,8 @@ export function Toolbar({ state, dispatch, settings, setSettings }: ToolbarProps
         <button
           type="button"
           onClick={() => dispatch({ type: "redo" })}
-          className="flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-slate-300 transition hover:border-slate-700 hover:text-white"
+          disabled={state.redoStack.length === 0}
+          className="flex items-center justify-center rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-slate-300 transition hover:border-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           title="Redo"
         >
           <Redo2 className="h-4 w-4" />

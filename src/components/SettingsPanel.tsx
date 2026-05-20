@@ -124,6 +124,12 @@ export function SettingsPanel({ open, settings, setSettings, dispatch }: Setting
           </select>
         </label>
 
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
+          <div className="mb-1 font-semibold text-slate-200">Click-through mode</div>
+          <div>The window becomes mouse-transparent at the native overlay level.</div>
+          <div>Use `Ctrl+Shift+X` or the tray menu to return to draw mode.</div>
+        </div>
+
         <div>
           <span className="mb-2 block text-slate-400">Favorite tools</span>
           <div className="grid grid-cols-2 gap-2">

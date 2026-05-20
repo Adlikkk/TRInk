@@ -1,4 +1,5 @@
 import type { Drawable, Point } from "../types/drawables";
+import { sanitizeDrawable } from "./drawable-validation";
 import { distance, normalizeRect } from "./geometry";
 
 function pointToSegmentDistance(point: Point, a: Point, b: Point) {
@@ -18,10 +19,15 @@ function pointToSegmentDistance(point: Point, a: Point, b: Point) {
 }
 
 export function isPointNearDrawable(point: Point, drawable: Drawable, tolerance = 10) {
-  switch (drawable.type) {
+  const safeDrawable = sanitizeDrawable(drawable);
+  if (!safeDrawable) {
+    return false;
+  }
+
+  switch (safeDrawable.type) {
     case "freehand":
     case "trend":
-      return drawable.points.some((segmentPoint, index, points) => {
+      return safeDrawable.points.some((segmentPoint, index, points) => {
         if (index === 0) {
           return distance(point, segmentPoint) <= tolerance;
         }
@@ -29,10 +35,10 @@ export function isPointNearDrawable(point: Point, drawable: Drawable, tolerance 
         return pointToSegmentDistance(point, points[index - 1], segmentPoint) <= tolerance;
       });
     case "arrow":
-      return pointToSegmentDistance(point, drawable.start, drawable.end) <= tolerance;
+      return pointToSegmentDistance(point, safeDrawable.start, safeDrawable.end) <= tolerance;
     case "rectangle":
     case "support_resistance_zone": {
-      const rect = normalizeRect(drawable.start, drawable.end);
+      const rect = normalizeRect(safeDrawable.start, safeDrawable.end);
       const expanded = {
         x: rect.x - tolerance,
         y: rect.y - tolerance,
@@ -48,23 +54,23 @@ export function isPointNearDrawable(point: Point, drawable: Drawable, tolerance 
       );
     }
     case "text":
-      return distance(point, drawable.point) <= tolerance * 2;
+      return distance(point, safeDrawable.point) <= tolerance * 2;
     case "channel":
       return (
-        pointToSegmentDistance(point, drawable.baseStart, drawable.baseEnd) <= tolerance ||
+        pointToSegmentDistance(point, safeDrawable.baseStart, safeDrawable.baseEnd) <= tolerance ||
         pointToSegmentDistance(
           point,
           {
-            x: drawable.baseStart.x + (drawable.parallelPoint.x - drawable.baseStart.x),
-            y: drawable.baseStart.y + (drawable.parallelPoint.y - drawable.baseStart.y)
+            x: safeDrawable.baseStart.x + (safeDrawable.parallelPoint.x - safeDrawable.baseStart.x),
+            y: safeDrawable.baseStart.y + (safeDrawable.parallelPoint.y - safeDrawable.baseStart.y)
           },
           {
-            x: drawable.baseEnd.x + (drawable.parallelPoint.x - drawable.baseStart.x),
-            y: drawable.baseEnd.y + (drawable.parallelPoint.y - drawable.baseStart.y)
+            x: safeDrawable.baseEnd.x + (safeDrawable.parallelPoint.x - safeDrawable.baseStart.x),
+            y: safeDrawable.baseEnd.y + (safeDrawable.parallelPoint.y - safeDrawable.baseStart.y)
           }
         ) <= tolerance
       );
     case "binary_marker":
-      return drawable.points.some((markerPoint) => distance(point, markerPoint) <= tolerance * 2);
+      return safeDrawable.points.some((markerPoint) => distance(point, markerPoint) <= tolerance * 2);
   }
 }

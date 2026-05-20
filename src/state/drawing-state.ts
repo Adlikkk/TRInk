@@ -5,6 +5,7 @@ export type DrawingState = {
   drawables: Drawable[];
   undoStack: Drawable[][];
   redoStack: Drawable[][];
+  selectedDrawableId: string | null;
   activeTool: ToolKind;
   toolMode: ToolMode;
   preview: PreviewShape | null;
@@ -28,20 +29,27 @@ export type DrawingAction =
   | { type: "set-overlay-mode"; mode: OverlayInteractionMode }
   | { type: "set-overlay-visible"; visible: boolean }
   | { type: "set-toolbar-position"; position: { x: number; y: number } }
-  | { type: "set-settings-open"; open: boolean };
+  | { type: "set-settings-open"; open: boolean }
+  | { type: "select-drawable"; id: string | null }
+  | { type: "delete-selected" };
 
-export function createInitialDrawingState(activeTool: ToolKind, toolMode: ToolMode): DrawingState {
+export function createInitialDrawingState(
+  activeTool: ToolKind,
+  toolMode: ToolMode,
+  toolbarPosition: { x: number; y: number }
+): DrawingState {
   return {
     drawables: [],
     undoStack: [],
     redoStack: [],
+    selectedDrawableId: null,
     activeTool,
     toolMode,
     preview: null,
     hidden: false,
     overlayMode: "draw",
     overlayVisible: true,
-    toolbarPosition: { x: 24, y: 24 },
+    toolbarPosition,
     settingsOpen: false
   };
 }
@@ -64,7 +72,8 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: [...state.drawables, action.drawable],
         undoStack: pushHistory(state),
         redoStack: [],
-        preview: null
+        preview: null,
+        selectedDrawableId: action.drawable.id
       };
     case "replace-drawables":
       return {
@@ -72,7 +81,10 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: action.drawables,
         undoStack: pushHistory(state),
         redoStack: [],
-        preview: null
+        preview: null,
+        selectedDrawableId: action.drawables.some((drawable) => drawable.id === state.selectedDrawableId)
+          ? state.selectedDrawableId
+          : null
       };
     case "undo": {
       const previous = state.undoStack[state.undoStack.length - 1];
@@ -85,7 +97,10 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: previous,
         undoStack: state.undoStack.slice(0, -1),
         redoStack: [...state.redoStack, state.drawables],
-        preview: null
+        preview: null,
+        selectedDrawableId: previous.some((drawable) => drawable.id === state.selectedDrawableId)
+          ? state.selectedDrawableId
+          : null
       };
     }
     case "redo": {
@@ -99,7 +114,10 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: next,
         redoStack: state.redoStack.slice(0, -1),
         undoStack: [...state.undoStack, state.drawables],
-        preview: null
+        preview: null,
+        selectedDrawableId: next.some((drawable) => drawable.id === state.selectedDrawableId)
+          ? state.selectedDrawableId
+          : null
       };
     }
     case "clear":
@@ -111,7 +129,8 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: [],
         undoStack: pushHistory(state),
         redoStack: [],
-        preview: null
+        preview: null,
+        selectedDrawableId: null
       };
     case "toggle-hidden":
       return { ...state, hidden: !state.hidden };
@@ -123,6 +142,27 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
       return { ...state, toolbarPosition: action.position };
     case "set-settings-open":
       return { ...state, settingsOpen: action.open };
+    case "select-drawable":
+      return { ...state, selectedDrawableId: action.id };
+    case "delete-selected": {
+      if (!state.selectedDrawableId) {
+        return state;
+      }
+
+      const nextDrawables = state.drawables.filter((drawable) => drawable.id !== state.selectedDrawableId);
+      if (nextDrawables.length === state.drawables.length) {
+        return { ...state, selectedDrawableId: null };
+      }
+
+      return {
+        ...state,
+        drawables: nextDrawables,
+        undoStack: pushHistory(state),
+        redoStack: [],
+        preview: null,
+        selectedDrawableId: null
+      };
+    }
     default:
       return state;
   }

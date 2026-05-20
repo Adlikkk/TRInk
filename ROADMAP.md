@@ -8,7 +8,9 @@
 - Trading annotations
 - Binary options annotations
 - Tray menu
-- Local settings persistence
+- Local settings persistence with validation
+- Reducer/settings/drawable validation tests
+- Internal stabilization pass for local desktop reliability
 
 ## Next
 

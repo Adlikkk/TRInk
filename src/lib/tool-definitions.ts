@@ -52,6 +52,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   }
 ];
 
+export const TOOL_IDS = new Set<ToolKind>(TOOL_DEFINITIONS.map((tool) => tool.id));
+
 export const HISTORY_ACTIONS = [
   { id: "undo", label: "Undo", icon: Undo2 },
   { id: "redo", label: "Redo", icon: Redo2 },
@@ -62,4 +64,8 @@ export const HISTORY_ACTIONS = [
 
 export function getToolDefinition(tool: ToolKind) {
   return TOOL_DEFINITIONS.find((entry) => entry.id === tool);
+}
+
+export function isToolKind(value: unknown): value is ToolKind {
+  return typeof value === "string" && TOOL_IDS.has(value as ToolKind);
 }

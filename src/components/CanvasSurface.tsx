@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Dispatch } from "react";
+import type { Dispatch, PointerEvent as ReactPointerEvent } from "react";
 import type {
   BinaryMarker,
   ChannelPattern,
@@ -7,15 +7,15 @@ import type {
   DrawingStyle,
   Point,
   PreviewShape,
-  ToolKind,
   TrendPattern
 } from "../types/drawables";
 import type { AppSettings } from "../types/settings";
 import type { DrawingAction, DrawingState } from "../state/drawing-state";
 import { createId } from "../lib/id";
-import { clampPoint, constrainAngle } from "../lib/geometry";
+import { clampPoint, constrainAngle, normalizeRect } from "../lib/geometry";
 import { isPointNearDrawable } from "../lib/hit-test";
 import { renderDrawable, renderPreview } from "../lib/rendering";
+import { findTopmostDrawableAtPoint, sanitizeDrawable, sanitizeDrawables } from "../lib/drawable-validation";
 
 type CanvasSurfaceProps = {
   state: DrawingState;
@@ -31,11 +31,13 @@ type PointerSession =
     }
   | {
       kind: "shape";
-      tool: "arrow" | "rectangle" | "support_resistance_zone";
+      tool: "arrow" | "rectangle" | "support_resistance_zone" | "expiry_line";
       start: Point;
     }
   | {
       kind: "eraser";
+      baseline: Drawable[];
+      working: Drawable[];
     }
   | {
       kind: "trend";
@@ -66,6 +68,7 @@ function inferTrendDirection(points: Point[]): TrendPattern["direction"] {
   if (points.length < 2) {
     return "neutral";
   }
+
   const first = points[0];
   const last = points[points.length - 1];
   if (last.y < first.y) {
@@ -74,7 +77,14 @@ function inferTrendDirection(points: Point[]): TrendPattern["direction"] {
   if (last.y > first.y) {
     return "bearish";
   }
+
   return "neutral";
+}
+
+function getPreviewStyle(tool: "pen" | "highlighter", settings: AppSettings) {
+  return tool === "highlighter"
+    ? buildStyle(settings, { strokeWidth: settings.strokeWidth * 2.4, opacity: 0.28 })
+    : buildStyle(settings);
 }
 
 export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps) {
@@ -82,6 +92,8 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef<PointerSession | null>(null);
   const [textDraft, setTextDraft] = useState<{ point: Point; value: string } | null>(null);
+  const [cursorPoint, setCursorPoint] = useState<Point | null>(null);
+  const [liveDrawables, setLiveDrawables] = useState<Drawable[] | null>(null);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -121,45 +133,129 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!state.hidden) {
-      state.drawables.forEach((drawable) => renderDrawable(ctx, drawable));
-      renderPreview(ctx, state.preview);
+    if (state.hidden) {
+      return;
     }
-  }, [state.drawables, state.preview, state.hidden]);
+
+    const sourceDrawables = liveDrawables ?? state.drawables;
+    sourceDrawables.forEach((drawable) => renderDrawable(ctx, drawable));
+    renderPreview(ctx, state.preview);
+
+    if (!state.selectedDrawableId) {
+      return;
+    }
+
+    const selected = sourceDrawables.find((drawable) => drawable.id === state.selectedDrawableId);
+    const safeDrawable = selected ? sanitizeDrawable(selected) : null;
+    if (!safeDrawable) {
+      return;
+    }
+
+    ctx.save();
+    ctx.strokeStyle = "#93c5fd";
+    ctx.globalAlpha = 0.9;
+    ctx.setLineDash([8, 6]);
+    ctx.lineWidth = 1.5;
+
+    switch (safeDrawable.type) {
+      case "arrow":
+        ctx.beginPath();
+        ctx.moveTo(safeDrawable.start.x, safeDrawable.start.y);
+        ctx.lineTo(safeDrawable.end.x, safeDrawable.end.y);
+        ctx.stroke();
+        break;
+      case "rectangle":
+      case "support_resistance_zone": {
+        const rect = normalizeRect(safeDrawable.start, safeDrawable.end);
+        ctx.strokeRect(rect.x - 4, rect.y - 4, rect.width + 8, rect.height + 8);
+        break;
+      }
+      case "freehand":
+      case "trend":
+        safeDrawable.points.forEach((point) => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+        break;
+      case "channel":
+        [safeDrawable.baseStart, safeDrawable.baseEnd, safeDrawable.parallelPoint].forEach((point) => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+        break;
+      case "binary_marker":
+        safeDrawable.points.forEach((point) => {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+        break;
+      case "text":
+        ctx.strokeRect(
+          safeDrawable.point.x - 8,
+          safeDrawable.point.y - safeDrawable.fontSize,
+          Math.max(60, safeDrawable.text.length * 10),
+          safeDrawable.fontSize + 12
+        );
+        break;
+    }
+
+    ctx.restore();
+  }, [liveDrawables, state.drawables, state.hidden, state.preview, state.selectedDrawableId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const session = sessionRef.current;
-      if (session?.kind === "trend") {
-        if (event.key === "Escape") {
-          sessionRef.current = null;
-          dispatch({ type: "set-preview", preview: null });
-        } else if (event.key === "Backspace") {
-          event.preventDefault();
-          session.points.pop();
-          if (session.points.length === 0) {
-            sessionRef.current = null;
-            dispatch({ type: "set-preview", preview: null });
-          } else {
-            dispatch({
-              type: "set-preview",
-              preview: { type: "trend_preview", points: [...session.points], style: buildStyle(settings) }
-            });
-          }
-        }
+
+      if (event.key === "Escape") {
+        sessionRef.current = null;
+        setLiveDrawables(null);
+        setTextDraft(null);
+        dispatch({ type: "set-preview", preview: null });
+        return;
       }
 
-      if (session?.kind === "channel" && event.key === "Escape") {
-        sessionRef.current = null;
-        dispatch({ type: "set-preview", preview: null });
+      if (event.key === "Delete" && state.selectedDrawableId) {
+        event.preventDefault();
+        dispatch({ type: "delete-selected" });
+        return;
+      }
+
+      if (event.key !== "Backspace") {
+        return;
+      }
+
+      if (session?.kind === "trend") {
+        event.preventDefault();
+        session.points.pop();
+        if (session.points.length === 0) {
+          sessionRef.current = null;
+          dispatch({ type: "set-preview", preview: null });
+        } else {
+          dispatch({
+            type: "set-preview",
+            preview: { type: "trend_preview", points: [...session.points], style: buildStyle(settings) }
+          });
+        }
+      } else if (session?.kind === "channel") {
+        event.preventDefault();
+        if (session.step === 2) {
+          sessionRef.current = { kind: "channel", step: 1, baseStart: session.baseStart };
+          dispatch({ type: "set-preview", preview: null });
+        } else {
+          sessionRef.current = null;
+          dispatch({ type: "set-preview", preview: null });
+        }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch, settings]);
+  }, [dispatch, settings, state.selectedDrawableId]);
 
-  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>): Point => {
+  const getPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
     return clampPoint(
       {
@@ -171,25 +267,33 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     );
   };
 
-  const commitDrawable = (drawable: Drawable) => {
-    dispatch({ type: "commit", drawable });
-  };
-
   const previewShape = (preview: PreviewShape | null) => {
     dispatch({ type: "set-preview", preview });
   };
 
-  const eraseAtPoint = (point: Point) => {
-    const filtered = state.drawables.filter((drawable) => !isPointNearDrawable(point, drawable, 14));
-    if (filtered.length !== state.drawables.length) {
-      dispatch({ type: "replace-drawables", drawables: filtered });
+  const commitDrawable = (drawable: Drawable) => {
+    const safeDrawable = sanitizeDrawable(drawable);
+    if (safeDrawable) {
+      dispatch({ type: "commit", drawable: safeDrawable });
     }
   };
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const eraseAtPoint = (drawables: Drawable[], point: Point) => {
+    return sanitizeDrawables(drawables.filter((drawable) => !isPointNearDrawable(point, drawable, 14)));
+  };
+
+  const cancelSession = () => {
+    sessionRef.current = null;
+    setLiveDrawables(null);
+    previewShape(null);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (state.overlayMode === "click-through" || state.hidden) {
       return;
     }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
 
     if (event.button === 2 && sessionRef.current?.kind === "trend") {
       event.preventDefault();
@@ -199,56 +303,100 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           id: createId("trend"),
           type: "trend",
           direction: inferTrendDirection(trend.points),
-          points: trend.points,
+          points: [...trend.points],
           showLabels: true,
           showArrows: true,
           style: buildStyle(settings),
           createdAt: Date.now()
         });
       }
-      sessionRef.current = null;
-      previewShape(null);
+      cancelSession();
       return;
     }
 
     const point = getPoint(event);
+    setCursorPoint(point);
+
+    if (event.button === 2 && sessionRef.current?.kind === "channel") {
+      event.preventDefault();
+      const channel = sessionRef.current;
+      if (channel.step === 2 && channel.baseEnd) {
+        commitDrawable({
+          id: createId("channel"),
+          type: "channel",
+          mode: "range",
+          baseStart: channel.baseStart,
+          baseEnd: channel.baseEnd,
+          parallelPoint: point,
+          showMidline: true,
+          extendRight: true,
+          style: buildStyle(settings),
+          createdAt: Date.now()
+        });
+      }
+      cancelSession();
+      return;
+    }
+
+    if (event.ctrlKey) {
+      const selected = findTopmostDrawableAtPoint(state.drawables, (drawable) =>
+        isPointNearDrawable(point, drawable, 10)
+      );
+      dispatch({ type: "select-drawable", id: selected?.id ?? null });
+      return;
+    }
+
+    dispatch({ type: "select-drawable", id: null });
     const style = buildStyle(settings);
 
     switch (state.activeTool) {
       case "pen":
       case "highlighter":
-        sessionRef.current = {
-          kind: "freehand",
-          points: [point],
-          tool: state.activeTool
-        };
+        if (event.button !== 0) {
+          return;
+        }
+        sessionRef.current = { kind: "freehand", points: [point], tool: state.activeTool };
         previewShape({
           id: "preview",
           type: "freehand",
           tool: state.activeTool,
           points: [point],
-          style:
-            state.activeTool === "highlighter"
-              ? buildStyle(settings, { strokeWidth: settings.strokeWidth * 2.4, opacity: 0.28 })
-              : style,
+          style: getPreviewStyle(state.activeTool, settings),
           createdAt: Date.now()
         });
         break;
       case "arrow":
       case "rectangle":
       case "support_resistance_zone":
+      case "expiry_line":
+        if (event.button !== 0) {
+          return;
+        }
         sessionRef.current = { kind: "shape", tool: state.activeTool, start: point };
         break;
       case "eraser":
-        sessionRef.current = { kind: "eraser" };
-        eraseAtPoint(point);
+        if (event.button !== 0) {
+          return;
+        }
+        sessionRef.current = {
+          kind: "eraser",
+          baseline: state.drawables,
+          working: eraseAtPoint(state.drawables, point)
+        };
+        setLiveDrawables(eraseAtPoint(state.drawables, point));
         break;
       case "text":
+        if (event.button !== 0 || textDraft) {
+          return;
+        }
         sessionRef.current = { kind: "text", point };
         setTextDraft({ point, value: "" });
         break;
       case "call_marker":
       case "put_marker": {
+        if (event.button !== 0) {
+          return;
+        }
         const drawable: BinaryMarker = {
           id: createId("marker"),
           type: "binary_marker",
@@ -262,35 +410,23 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         commitDrawable(drawable);
         break;
       }
-      case "expiry_line":
-        sessionRef.current = { kind: "shape", tool: "arrow", start: point };
-        previewShape({
-          id: "preview-expiry",
-          type: "binary_marker",
-          markerType: "expiry_line",
-          points: [point, { x: point.x, y: 80 }],
-          expiry: "M5",
-          style: buildStyle(settings, { dashed: true }),
-          createdAt: Date.now()
-        });
-        sessionRef.current = {
-          kind: "shape",
-          tool: "arrow",
-          start: point
-        };
-        break;
       case "trend": {
-        const trend = sessionRef.current?.kind === "trend" ? sessionRef.current : { kind: "trend" as const, points: [] };
+        if (event.button !== 0) {
+          return;
+        }
+        const trend =
+          sessionRef.current?.kind === "trend"
+            ? sessionRef.current
+            : { kind: "trend" as const, points: [] as Point[] };
         trend.points = [...trend.points, point];
         sessionRef.current = trend;
-        previewShape({
-          type: "trend_preview",
-          points: [...trend.points],
-          style
-        });
+        previewShape({ type: "trend_preview", points: [...trend.points], style });
         break;
       }
       case "channel": {
+        if (event.button !== 0) {
+          return;
+        }
         const channel = sessionRef.current;
         if (!channel || channel.kind !== "channel") {
           sessionRef.current = { kind: "channel", step: 1, baseStart: point };
@@ -329,20 +465,21 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           createdAt: Date.now()
         };
         commitDrawable(drawable);
-        sessionRef.current = null;
-        previewShape(null);
+        cancelSession();
         break;
       }
     }
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const session = sessionRef.current;
+    const point = getPoint(event);
+    setCursorPoint(point);
+
     if (!session) {
       return;
     }
 
-    const point = getPoint(event);
     const baseStyle = buildStyle(settings);
     const maybeConstrained =
       event.shiftKey &&
@@ -358,23 +495,19 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         : point;
 
     switch (session.kind) {
-      case "freehand": {
+      case "freehand":
         session.points.push(point);
         previewShape({
           id: "preview",
           type: "freehand",
           tool: session.tool,
           points: [...session.points],
-          style:
-            session.tool === "highlighter"
-              ? buildStyle(settings, { strokeWidth: settings.strokeWidth * 2.4, opacity: 0.28 })
-              : baseStyle,
+          style: getPreviewStyle(session.tool, settings),
           createdAt: Date.now()
         });
         break;
-      }
       case "shape":
-        if (state.activeTool === "rectangle") {
+        if (session.tool === "rectangle") {
           previewShape({
             id: "preview-rect",
             type: "rectangle",
@@ -383,7 +516,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             style: baseStyle,
             createdAt: Date.now()
           });
-        } else if (state.activeTool === "support_resistance_zone") {
+        } else if (session.tool === "support_resistance_zone") {
           previewShape({
             id: "preview-zone",
             type: "support_resistance_zone",
@@ -393,7 +526,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             style: buildStyle(settings, { opacity: Math.min(settings.opacity, 0.8) }),
             createdAt: Date.now()
           });
-        } else if (state.activeTool === "expiry_line") {
+        } else if (session.tool === "expiry_line") {
           previewShape({
             id: "preview-expiry",
             type: "binary_marker",
@@ -415,7 +548,8 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         }
         break;
       case "eraser":
-        eraseAtPoint(point);
+        session.working = eraseAtPoint(session.working, point);
+        setLiveDrawables(session.working);
         break;
       case "trend":
         previewShape({
@@ -440,13 +574,14 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     }
   };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const session = sessionRef.current;
     if (!session) {
       return;
     }
 
     const point = getPoint(event);
+    setCursorPoint(point);
     const style = buildStyle(settings);
 
     switch (session.kind) {
@@ -455,17 +590,14 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           id: createId(session.tool),
           type: "freehand",
           tool: session.tool,
-          points: [...session.points, point],
-          style:
-            session.tool === "highlighter"
-              ? buildStyle(settings, { strokeWidth: settings.strokeWidth * 2.4, opacity: 0.28 })
-              : style,
+          points: [...session.points],
+          style: getPreviewStyle(session.tool, settings),
           createdAt: Date.now()
         });
-        sessionRef.current = null;
+        cancelSession();
         break;
-      case "shape": {
-        if (state.activeTool === "arrow") {
+      case "shape":
+        if (session.tool === "arrow") {
           commitDrawable({
             id: createId("arrow"),
             type: "arrow",
@@ -474,7 +606,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             style,
             createdAt: Date.now()
           });
-        } else if (state.activeTool === "rectangle") {
+        } else if (session.tool === "rectangle") {
           commitDrawable({
             id: createId("rect"),
             type: "rectangle",
@@ -483,7 +615,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             style,
             createdAt: Date.now()
           });
-        } else if (state.activeTool === "support_resistance_zone") {
+        } else if (session.tool === "support_resistance_zone") {
           commitDrawable({
             id: createId("zone"),
             type: "support_resistance_zone",
@@ -493,7 +625,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             style: buildStyle(settings, { opacity: Math.min(settings.opacity, 0.8) }),
             createdAt: Date.now()
           });
-        } else if (state.activeTool === "expiry_line") {
+        } else if (session.tool === "expiry_line") {
           commitDrawable({
             id: createId("expiry"),
             type: "binary_marker",
@@ -504,13 +636,11 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             createdAt: Date.now()
           });
         }
-        sessionRef.current = null;
-        previewShape(null);
+        cancelSession();
         break;
-      }
       case "eraser":
-        sessionRef.current = null;
-        previewShape(null);
+        dispatch({ type: "replace-drawables", drawables: session.working });
+        cancelSession();
         break;
       case "text":
       case "trend":
@@ -539,6 +669,19 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     sessionRef.current = null;
   };
 
+  const hintText =
+    sessionRef.current?.kind === "trend"
+      ? "Trend: left click adds points, right click finishes, Esc cancels, Backspace removes last"
+      : sessionRef.current?.kind === "channel"
+        ? "Channel: click start, click end, move for width, click or right click to finish"
+        : state.activeTool === "trend"
+          ? "Trend tool ready"
+          : state.activeTool === "channel"
+            ? "Channel tool ready"
+            : state.selectedDrawableId
+              ? "Selection active: Delete removes the selected object"
+              : "Ctrl+click selects an existing object";
+
   return (
     <div ref={wrapperRef} className="absolute inset-0">
       <canvas
@@ -547,8 +690,20 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={cancelSession}
         onContextMenu={(event) => event.preventDefault()}
       />
+      {cursorPoint ? (
+        <div
+          className="pointer-events-none absolute rounded-full border border-slate-700/90 bg-slate-950/92 px-3 py-1 text-[11px] text-slate-200 shadow-overlay"
+          style={{
+            left: Math.min(cursorPoint.x + 16, Math.max(24, window.innerWidth - 440)),
+            top: Math.min(cursorPoint.y + 16, Math.max(24, window.innerHeight - 72))
+          }}
+        >
+          {hintText}
+        </div>
+      ) : null}
       {textDraft ? (
         <input
           autoFocus
