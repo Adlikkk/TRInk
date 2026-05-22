@@ -1,0 +1,1 @@
+TRInk is a local Windows screen annotation overlay for chart markup, trade review, and trading education. It is free for registered TradeReality users and keeps sessions and exports on the local machine only.

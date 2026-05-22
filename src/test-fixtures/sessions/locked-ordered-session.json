@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.11",
+  "createdAt": "2026-05-22T12:00:00.000Z",
+  "updatedAt": "2026-05-22T12:00:00.000Z",
+  "name": "Locked ordered session",
+  "drawings": [
+    {
+      "id": "back-rect",
+      "type": "rectangle",
+      "start": { "x": 20, "y": 20 },
+      "end": { "x": 140, "y": 100 },
+      "style": { "strokeColor": "#94a3b8", "fillColor": "#94a3b8", "strokeWidth": 2, "opacity": 0.35 },
+      "createdAt": 1
+    },
+    {
+      "id": "front-text",
+      "type": "text",
+      "point": { "x": 90, "y": 80 },
+      "text": "Top note",
+      "fontSize": 20,
+      "style": { "strokeColor": "#ffffff", "fillColor": "#ffffff", "strokeWidth": 2, "opacity": 1 },
+      "createdAt": 2,
+      "locked": true
+    }
+  ]
+}

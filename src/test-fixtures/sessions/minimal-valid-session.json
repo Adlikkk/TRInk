@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.11",
+  "createdAt": "2026-05-22T12:00:00.000Z",
+  "updatedAt": "2026-05-22T12:00:00.000Z",
+  "name": "Minimal valid session",
+  "drawings": [
+    {
+      "id": "arrow-1",
+      "type": "arrow",
+      "start": { "x": 40, "y": 40 },
+      "end": { "x": 160, "y": 120 },
+      "style": { "strokeColor": "#38bdf8", "fillColor": "#38bdf8", "strokeWidth": 2, "opacity": 1 },
+      "createdAt": 1
+    }
+  ]
+}

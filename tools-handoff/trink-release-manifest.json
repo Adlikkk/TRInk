@@ -1,0 +1,30 @@
+{
+  "id": "trink",
+  "name": "TRInk",
+  "fullName": "TradeReality Ink",
+  "version": "0.3.2",
+  "channel": "beta",
+  "access": "registered_users",
+  "price": "free",
+  "platforms": ["windows"],
+  "installerFileName": "TradeReality Ink_0.3.2_x64-setup.exe",
+  "checksumFileName": "CHECKSUMS.txt",
+  "logoFileName": "logo.svg",
+  "requiresLoginInsideApp": false,
+  "telemetryByDefault": false,
+  "cloudSync": false,
+  "brokerIntegration": false,
+  "tradingAutomation": false,
+  "safetyScope": [
+    "Local screen annotation overlay",
+    "No financial advice",
+    "No trading signals",
+    "No broker integration",
+    "No trading automation",
+    "No platform bypass",
+    "No telemetry by default",
+    "Local sessions and exports only"
+  ],
+  "shortDescription": "A local screen annotation overlay for chart markup, trade review, and trading education.",
+  "status": "beta"
+}

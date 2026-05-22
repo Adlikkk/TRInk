@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.11",
+  "createdAt": "2026-05-22T12:00:00.000Z",
+  "updatedAt": "2026-05-22T12:00:00.000Z",
+  "name": "Fib custom levels session",
+  "drawings": [
+    {
+      "id": "fib-ret-1",
+      "type": "fibonacci_retracement",
+      "points": [{ "x": 60, "y": 260 }, { "x": 260, "y": 80 }],
+      "levels": [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.272, 1.618],
+      "showLabels": true,
+      "showPercentages": true,
+      "extendLeft": true,
+      "extendRight": true,
+      "style": { "strokeColor": "#f59e0b", "fillColor": "#f59e0b", "strokeWidth": 2, "opacity": 0.9 },
+      "createdAt": 1
+    },
+    {
+      "id": "fib-fan-1",
+      "type": "fibonacci_fan",
+      "points": [{ "x": 80, "y": 260 }, { "x": 240, "y": 90 }],
+      "levels": [0.382, 0.5, 0.618, 1, 1.618],
+      "showLabels": true,
+      "showPercentages": false,
+      "style": { "strokeColor": "#8b5cf6", "fillColor": "#8b5cf6", "strokeWidth": 2, "opacity": 0.9 },
+      "createdAt": 2
+    }
+  ]
+}

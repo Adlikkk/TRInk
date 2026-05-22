@@ -5,6 +5,10 @@ export type DrawingState = {
   drawables: Drawable[];
   undoStack: Drawable[][];
   redoStack: Drawable[][];
+  sessionCreatedAt: string | null;
+  currentSessionName: string;
+  currentSessionPath: string | null;
+  isDirty: boolean;
   selectedDrawableId: string | null;
   activeTool: ToolKind;
   toolMode: ToolMode;
@@ -22,6 +26,8 @@ export type DrawingAction =
   | { type: "set-preview"; preview: PreviewShape | null }
   | { type: "commit"; drawable: Drawable }
   | { type: "replace-drawables"; drawables: Drawable[] }
+  | { type: "load-session"; drawables: Drawable[]; name: string; path: string | null; createdAt: string }
+  | { type: "mark-saved"; name: string; path: string | null; createdAt: string }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "clear" }
@@ -31,7 +37,11 @@ export type DrawingAction =
   | { type: "set-toolbar-position"; position: { x: number; y: number } }
   | { type: "set-settings-open"; open: boolean }
   | { type: "select-drawable"; id: string | null }
-  | { type: "delete-selected" };
+  | { type: "delete-selected" }
+  | { type: "replace-selected-drawable"; drawable: Drawable }
+  | { type: "duplicate-drawable"; drawable: Drawable }
+  | { type: "set-selected-locked"; locked: boolean }
+  | { type: "reorder-selected"; direction: "forward" | "backward" | "front" | "back" };
 
 export function createInitialDrawingState(
   activeTool: ToolKind,
@@ -42,6 +52,10 @@ export function createInitialDrawingState(
     drawables: [],
     undoStack: [],
     redoStack: [],
+    sessionCreatedAt: null,
+    currentSessionName: "Untitled session",
+    currentSessionPath: null,
+    isDirty: false,
     selectedDrawableId: null,
     activeTool,
     toolMode,
@@ -58,6 +72,40 @@ function pushHistory(state: DrawingState) {
   return [...state.undoStack, state.drawables];
 }
 
+function reorderDrawables(
+  drawables: Drawable[],
+  selectedId: string,
+  direction: "forward" | "backward" | "front" | "back"
+) {
+  const index = drawables.findIndex((drawable) => drawable.id === selectedId);
+  if (index < 0) {
+    return drawables;
+  }
+
+  const next = [...drawables];
+  const [selected] = next.splice(index, 1);
+  if (!selected) {
+    return drawables;
+  }
+
+  switch (direction) {
+    case "forward":
+      next.splice(Math.min(next.length, index + 1), 0, selected);
+      break;
+    case "backward":
+      next.splice(Math.max(0, index - 1), 0, selected);
+      break;
+    case "front":
+      next.push(selected);
+      break;
+    case "back":
+      next.unshift(selected);
+      break;
+  }
+
+  return next;
+}
+
 export function drawingReducer(state: DrawingState, action: DrawingAction): DrawingState {
   switch (action.type) {
     case "set-tool":
@@ -72,6 +120,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: [...state.drawables, action.drawable],
         undoStack: pushHistory(state),
         redoStack: [],
+        isDirty: true,
         preview: null,
         selectedDrawableId: action.drawable.id
       };
@@ -81,10 +130,32 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: action.drawables,
         undoStack: pushHistory(state),
         redoStack: [],
+        isDirty: true,
         preview: null,
         selectedDrawableId: action.drawables.some((drawable) => drawable.id === state.selectedDrawableId)
           ? state.selectedDrawableId
           : null
+      };
+    case "load-session":
+      return {
+        ...state,
+        drawables: action.drawables,
+        undoStack: [],
+        redoStack: [],
+        sessionCreatedAt: action.createdAt,
+        currentSessionName: action.name,
+        currentSessionPath: action.path,
+        isDirty: false,
+        preview: null,
+        selectedDrawableId: null
+      };
+    case "mark-saved":
+      return {
+        ...state,
+        sessionCreatedAt: action.createdAt,
+        currentSessionName: action.name,
+        currentSessionPath: action.path,
+        isDirty: false
       };
     case "undo": {
       const previous = state.undoStack[state.undoStack.length - 1];
@@ -97,6 +168,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: previous,
         undoStack: state.undoStack.slice(0, -1),
         redoStack: [...state.redoStack, state.drawables],
+        isDirty: true,
         preview: null,
         selectedDrawableId: previous.some((drawable) => drawable.id === state.selectedDrawableId)
           ? state.selectedDrawableId
@@ -114,6 +186,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: next,
         redoStack: state.redoStack.slice(0, -1),
         undoStack: [...state.undoStack, state.drawables],
+        isDirty: true,
         preview: null,
         selectedDrawableId: next.some((drawable) => drawable.id === state.selectedDrawableId)
           ? state.selectedDrawableId
@@ -129,6 +202,7 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: [],
         undoStack: pushHistory(state),
         redoStack: [],
+        isDirty: true,
         preview: null,
         selectedDrawableId: null
       };
@@ -149,6 +223,11 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         return state;
       }
 
+       const selected = state.drawables.find((drawable) => drawable.id === state.selectedDrawableId);
+       if (selected?.locked) {
+        return state;
+       }
+
       const nextDrawables = state.drawables.filter((drawable) => drawable.id !== state.selectedDrawableId);
       if (nextDrawables.length === state.drawables.length) {
         return { ...state, selectedDrawableId: null };
@@ -159,10 +238,91 @@ export function drawingReducer(state: DrawingState, action: DrawingAction): Draw
         drawables: nextDrawables,
         undoStack: pushHistory(state),
         redoStack: [],
+        isDirty: true,
         preview: null,
         selectedDrawableId: null
       };
     }
+    case "replace-selected-drawable": {
+      const selectedIndex = state.drawables.findIndex((drawable) => drawable.id === action.drawable.id);
+      if (selectedIndex < 0) {
+        return state;
+      }
+
+      const nextDrawables = state.drawables.map((drawable, index) =>
+        index === selectedIndex ? action.drawable : drawable
+      );
+
+      return {
+        ...state,
+        drawables: nextDrawables,
+        undoStack: pushHistory(state),
+        redoStack: [],
+        isDirty: true,
+        preview: null,
+        selectedDrawableId: action.drawable.id
+      };
+    }
+    case "set-selected-locked": {
+      if (!state.selectedDrawableId) {
+        return state;
+      }
+
+      const selectedIndex = state.drawables.findIndex((drawable) => drawable.id === state.selectedDrawableId);
+      if (selectedIndex < 0) {
+        return state;
+      }
+
+      const current = state.drawables[selectedIndex];
+      if ((current.locked === true) === action.locked) {
+        return state;
+      }
+
+      const nextDrawables = state.drawables.map((drawable, index) =>
+        index === selectedIndex ? { ...drawable, locked: action.locked } : drawable
+      );
+
+      return {
+        ...state,
+        drawables: nextDrawables,
+        undoStack: pushHistory(state),
+        redoStack: [],
+        isDirty: true,
+        preview: null
+      };
+    }
+    case "reorder-selected": {
+      if (!state.selectedDrawableId) {
+        return state;
+      }
+
+      const nextDrawables = reorderDrawables(state.drawables, state.selectedDrawableId, action.direction);
+      if (nextDrawables === state.drawables) {
+        return state;
+      }
+      if (nextDrawables.every((drawable, index) => drawable.id === state.drawables[index]?.id)) {
+        return state;
+      }
+
+      return {
+        ...state,
+        drawables: nextDrawables,
+        undoStack: pushHistory(state),
+        redoStack: [],
+        isDirty: true,
+        preview: null
+      };
+    }
+    case "duplicate-drawable":
+      return {
+        ...state,
+        drawables: [...state.drawables, action.drawable],
+        undoStack: pushHistory(state),
+        redoStack: [],
+        isDirty: true,
+        preview: null,
+        selectedDrawableId: action.drawable.id
+      };
     default:
       return state;
   }

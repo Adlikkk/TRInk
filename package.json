@@ -1,7 +1,8 @@
 {
   "name": "trade-reality-ink",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.2",
+  "author": "TradeReality",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,10 +10,15 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release:internal": "powershell -ExecutionPolicy Bypass -File scripts/package-internal-release.ps1",
+    "release:beta": "powershell -ExecutionPolicy Bypass -File scripts/package-beta-release.ps1",
+    "signing:check": "powershell -ExecutionPolicy Bypass -Command \"Write-Output 'TRInk beta builds are unsigned. Review docs/SIGNING.md for the production signing checklist.'\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
+    "@tauri-apps/plugin-fs": "^2.2.0",
     "@tauri-apps/plugin-global-shortcut": "^2.2.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
@@ -20,6 +26,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^24.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

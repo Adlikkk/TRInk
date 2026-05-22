@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.11",
+  "createdAt": "2026-05-22T12:00:00.000Z",
+  "updatedAt": "2026-05-22T12:00:00.000Z",
+  "name": "Pitchfork variants session",
+  "drawings": [
+    {
+      "id": "pf-standard",
+      "type": "andrews_pitchfork",
+      "points": [{ "x": 120, "y": 40 }, { "x": 60, "y": 190 }, { "x": 220, "y": 220 }],
+      "showLabels": true,
+      "variant": "standard",
+      "showMedianLine": true,
+      "showOuterLines": true,
+      "showAnchorLine": true,
+      "style": { "strokeColor": "#10b981", "fillColor": "#10b981", "strokeWidth": 2, "opacity": 0.9 },
+      "createdAt": 1
+    },
+    {
+      "id": "pf-schiff",
+      "type": "andrews_pitchfork",
+      "points": [{ "x": 140, "y": 60 }, { "x": 80, "y": 210 }, { "x": 250, "y": 230 }],
+      "showLabels": false,
+      "variant": "schiff",
+      "showMedianLine": true,
+      "showOuterLines": true,
+      "showAnchorLine": false,
+      "style": { "strokeColor": "#14b8a6", "fillColor": "#14b8a6", "strokeWidth": 2, "opacity": 0.85 },
+      "createdAt": 2
+    },
+    {
+      "id": "pf-modified",
+      "type": "andrews_pitchfork",
+      "points": [{ "x": 160, "y": 80 }, { "x": 100, "y": 230 }, { "x": 270, "y": 250 }],
+      "showLabels": true,
+      "variant": "modified_schiff",
+      "showMedianLine": false,
+      "showOuterLines": true,
+      "showAnchorLine": true,
+      "style": { "strokeColor": "#22c55e", "fillColor": "#22c55e", "strokeWidth": 2, "opacity": 0.85 },
+      "createdAt": 3
+    }
+  ]
+}

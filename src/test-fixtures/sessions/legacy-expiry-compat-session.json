@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.0",
+  "createdAt": "2026-05-22T12:00:00.000Z",
+  "updatedAt": "2026-05-22T12:00:00.000Z",
+  "name": "Legacy vertical marker compatibility",
+  "drawings": [
+    {
+      "id": "legacy-1",
+      "type": "binary_marker",
+      "markerType": "expiry_line",
+      "points": [{ "x": 200, "y": 40 }, { "x": 200, "y": 220 }],
+      "expiry": "M15",
+      "style": { "strokeColor": "#38bdf8", "fillColor": "#38bdf8", "strokeWidth": 2, "opacity": 0.85 },
+      "createdAt": 1
+    }
+  ]
+}

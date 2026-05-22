@@ -1,0 +1,18 @@
+{
+  "id": "trink",
+  "name": "TRInk",
+  "fullName": "TradeReality Ink",
+  "category": "Tools",
+  "access": "Registered users",
+  "price": "Free",
+  "platform": "Windows",
+  "description": "A local screen annotation overlay for chart markup, trade review, and trading education.",
+  "safety": [
+    "No broker integration",
+    "No trading automation",
+    "No financial advice",
+    "No telemetry by default",
+    "Local sessions and exports only"
+  ],
+  "downloadFileName": "TradeReality Ink_0.3.2_x64-setup.exe"
+}

@@ -1,21 +1,47 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent } from "react";
 import type {
+  AndrewsPitchforkPattern,
   BinaryMarker,
   ChannelPattern,
   Drawable,
+  FibonacciFanPattern,
+  FibonacciRetracementPattern,
+  FVGPattern,
+  HorizontalLineShape,
+  LiquiditySweepPattern,
   DrawingStyle,
   Point,
   PreviewShape,
-  TrendPattern
+  QMPattern,
+  RayPattern,
+  StructureBreakPattern,
+  TextShape,
+  TrendPattern,
+  VerticalMarkerShape
 } from "../types/drawables";
 import type { AppSettings } from "../types/settings";
 import type { DrawingAction, DrawingState } from "../state/drawing-state";
+import {
+  DEFAULT_FIBONACCI_FAN_LEVELS,
+  DEFAULT_FIBONACCI_RETRACEMENT_LEVELS
+} from "../lib/chart-patterns";
 import { createId } from "../lib/id";
 import { clampPoint, constrainAngle, normalizeRect } from "../lib/geometry";
 import { isPointNearDrawable } from "../lib/hit-test";
-import { renderDrawable, renderPreview } from "../lib/rendering";
+import { renderDrawable, renderPreview, renderSelectionOverlay } from "../lib/rendering";
+import { getAnchorHandles, hitTestAnchorHandle, moveDrawable, updateDrawableAnchor } from "../lib/object-editing";
 import { findTopmostDrawableAtPoint, sanitizeDrawable, sanitizeDrawables } from "../lib/drawable-validation";
+import {
+  DEFAULT_TEXT_ALIGN,
+  DEFAULT_TEXT_BACKGROUND_COLOR,
+  DEFAULT_TEXT_BACKGROUND_OPACITY,
+  DEFAULT_TEXT_BORDER_COLOR,
+  DEFAULT_TEXT_BORDER_RADIUS,
+  DEFAULT_TEXT_FONT_SIZE,
+  DEFAULT_TEXT_FONT_WEIGHT,
+  DEFAULT_TEXT_PADDING
+} from "../lib/text-drawable";
 
 type CanvasSurfaceProps = {
   state: DrawingState;
@@ -35,6 +61,10 @@ type PointerSession =
       start: Point;
     }
   | {
+      kind: "ray";
+      start: Point;
+    }
+  | {
       kind: "eraser";
       baseline: Drawable[];
       working: Drawable[];
@@ -50,8 +80,53 @@ type PointerSession =
       baseEnd?: Point;
     }
   | {
+      kind: "qm";
+      patternType: "qm_bullish" | "qm_bearish";
+      points: Point[];
+    }
+  | {
+      kind: "structure-break";
+      patternType: "bos" | "choch";
+      start: Point;
+    }
+  | {
+      kind: "fvg";
+      start: Point;
+    }
+  | {
+      kind: "fibonacci";
+      patternType: "fibonacci_retracement" | "fibonacci_fan";
+      start: Point;
+    }
+  | {
+      kind: "sweep";
+      step: 1 | 2;
+      levelStart: Point;
+      levelEnd?: Point;
+    }
+  | {
+      kind: "pitchfork";
+      step: 1 | 2;
+      pivotA: Point;
+      pivotB?: Point;
+    }
+  | {
       kind: "text";
       point: Point;
+    }
+  | {
+      kind: "selection-move";
+      drawableId: string;
+      start: Point;
+      original: Drawable;
+      working: Drawable;
+    }
+  | {
+      kind: "selection-anchor";
+      drawableId: string;
+      anchorId: string;
+      original: Drawable;
+      working: Drawable;
     };
 
 function buildStyle(settings: AppSettings, overrides?: Partial<DrawingStyle>): DrawingStyle {
@@ -62,6 +137,62 @@ function buildStyle(settings: AppSettings, overrides?: Partial<DrawingStyle>): D
     opacity: settings.opacity,
     ...overrides
   };
+}
+
+function buildToolStyle(
+  tool: DrawingState["activeTool"] | "qm_bullish" | "qm_bearish",
+  settings: AppSettings,
+  overrides?: Partial<DrawingStyle>
+) {
+  if (tool === "qm_bullish") {
+    return buildStyle(settings, { strokeColor: "#22c55e", fillColor: "#22c55e", ...overrides });
+  }
+
+  if (tool === "qm_bearish") {
+    return buildStyle(settings, { strokeColor: "#f43f5e", fillColor: "#f43f5e", ...overrides });
+  }
+
+  if (tool === "bos") {
+    return buildStyle(settings, { strokeColor: "#38bdf8", fillColor: "#38bdf8", ...overrides });
+  }
+
+  if (tool === "choch") {
+    return buildStyle(settings, { strokeColor: "#f59e0b", fillColor: "#f59e0b", dashed: true, ...overrides });
+  }
+
+  if (tool === "fvg") {
+    return buildStyle(settings, { strokeColor: "#a855f7", fillColor: "#a855f7", opacity: Math.min(settings.opacity, 0.8), ...overrides });
+  }
+
+  if (tool === "liquidity_sweep") {
+    return buildStyle(settings, { strokeColor: "#fb7185", fillColor: "#fb7185", dashed: true, ...overrides });
+  }
+
+  if (tool === "horizontal_line") {
+    return buildStyle(settings, { strokeColor: "#38bdf8", fillColor: "#38bdf8", ...overrides });
+  }
+
+  if (tool === "vertical_marker") {
+    return buildStyle(settings, { strokeColor: "#94a3b8", fillColor: "#94a3b8", dashed: true, ...overrides });
+  }
+
+  if (tool === "ray") {
+    return buildStyle(settings, { strokeColor: "#22c55e", fillColor: "#22c55e", ...overrides });
+  }
+
+  if (tool === "fibonacci_retracement") {
+    return buildStyle(settings, { strokeColor: "#f59e0b", fillColor: "#f59e0b", ...overrides });
+  }
+
+  if (tool === "fibonacci_fan") {
+    return buildStyle(settings, { strokeColor: "#8b5cf6", fillColor: "#8b5cf6", ...overrides });
+  }
+
+  if (tool === "andrews_pitchfork") {
+    return buildStyle(settings, { strokeColor: "#10b981", fillColor: "#10b981", ...overrides });
+  }
+
+  return buildStyle(settings, overrides);
 }
 
 function inferTrendDirection(points: Point[]): TrendPattern["direction"] {
@@ -87,11 +218,189 @@ function getPreviewStyle(tool: "pen" | "highlighter", settings: AppSettings) {
     : buildStyle(settings);
 }
 
+function getQMHintLabel(patternType: "qm_bullish" | "qm_bearish", index: number) {
+  const bullish = ["Left shoulder", "High", "Lower low", "Higher high / structure break", "Retest / entry area"];
+  const bearish = ["Left shoulder", "Low", "Higher high", "Lower low / structure break", "Retest / entry area"];
+  return (patternType === "qm_bullish" ? bullish : bearish)[index] ?? "Next point";
+}
+
+function commitQMDrawable(
+  patternType: "qm_bullish" | "qm_bearish",
+  points: Point[],
+  settings: AppSettings
+): QMPattern {
+  return {
+    id: createId(patternType),
+    type: patternType,
+    points,
+    label: patternType === "qm_bullish" ? "Bullish QM" : "Bearish QM",
+    showLabels: settings.showPatternLabels,
+    showNeckline: true,
+    showRetestZone: true,
+    showDirectionArrow: true,
+    style: buildToolStyle(patternType, settings),
+    createdAt: Date.now()
+  };
+}
+
+function inferBreakDirection(points: Point[]): StructureBreakPattern["direction"] {
+  if (points.length < 2) {
+    return "neutral";
+  }
+  return points[1].y < points[0].y ? "bullish" : points[1].y > points[0].y ? "bearish" : "neutral";
+}
+
+function commitStructureBreakDrawable(
+  patternType: "bos" | "choch",
+  start: Point,
+  end: Point,
+  settings: AppSettings
+): StructureBreakPattern {
+  return {
+    id: createId(patternType),
+    type: patternType,
+    points: [start, end],
+    label: patternType === "bos" ? "BOS" : "CHoCH",
+    direction: inferBreakDirection([start, end]),
+    showArrow: true,
+    style: buildToolStyle(patternType, settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitFVGDrawable(start: Point, end: Point, settings: AppSettings): FVGPattern {
+  return {
+    id: createId("fvg"),
+    type: "fvg",
+    points: [start, end],
+    label: "FVG",
+    extendRight: false,
+    style: buildToolStyle("fvg", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitHorizontalLineDrawable(point: Point, settings: AppSettings): HorizontalLineShape {
+  return {
+    id: createId("horizontal-line"),
+    type: "horizontal_line",
+    y: point.y,
+    label: "Horizontal Line",
+    style: buildToolStyle("horizontal_line", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitVerticalMarkerDrawable(point: Point, settings: AppSettings): VerticalMarkerShape {
+  return {
+    id: createId("vertical-marker"),
+    type: "vertical_marker",
+    x: point.x,
+    label: "Vertical Marker",
+    style: buildToolStyle("vertical_marker", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitRayDrawable(start: Point, end: Point, settings: AppSettings): RayPattern {
+  return {
+    id: createId("ray"),
+    type: "ray",
+    points: [start, end],
+    label: "Ray",
+    style: buildToolStyle("ray", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitFibonacciRetracementDrawable(start: Point, end: Point, settings: AppSettings): FibonacciRetracementPattern {
+  return {
+    id: createId("fib-retracement"),
+    type: "fibonacci_retracement",
+    points: [start, end],
+    levels: [...DEFAULT_FIBONACCI_RETRACEMENT_LEVELS],
+    showLabels: settings.showPatternLabels,
+    showPercentages: false,
+    extendLeft: false,
+    extendRight: false,
+    style: buildToolStyle("fibonacci_retracement", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitFibonacciFanDrawable(start: Point, end: Point, settings: AppSettings): FibonacciFanPattern {
+  return {
+    id: createId("fib-fan"),
+    type: "fibonacci_fan",
+    points: [start, end],
+    levels: [...DEFAULT_FIBONACCI_FAN_LEVELS],
+    showLabels: settings.showPatternLabels,
+    showPercentages: false,
+    style: buildToolStyle("fibonacci_fan", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitAndrewsPitchforkDrawable(a: Point, b: Point, c: Point, settings: AppSettings): AndrewsPitchforkPattern {
+  return {
+    id: createId("pitchfork"),
+    type: "andrews_pitchfork",
+    points: [a, b, c],
+    showLabels: settings.showPatternLabels,
+    variant: "standard",
+    showMedianLine: true,
+    showOuterLines: true,
+    showAnchorLine: false,
+    style: buildToolStyle("andrews_pitchfork", settings),
+    createdAt: Date.now()
+  };
+}
+
+function commitLiquiditySweepDrawable(levelStart: Point, levelEnd: Point, sweepPoint: Point, settings: AppSettings): LiquiditySweepPattern {
+  return {
+    id: createId("sweep"),
+    type: "liquidity_sweep",
+    points: [levelStart, levelEnd, sweepPoint],
+    label: "Sweep",
+    showSweepMarker: true,
+    style: buildToolStyle("liquidity_sweep", settings),
+    createdAt: Date.now()
+  };
+}
+
+function buildTextDrawable(point: Point, text: string, settings: AppSettings, existing?: TextShape): TextShape {
+  return {
+    id: existing?.id ?? createId("text"),
+    type: "text",
+    point: existing?.point ?? point,
+    text,
+    fontSize: existing?.fontSize ?? DEFAULT_TEXT_FONT_SIZE,
+    fontWeight: existing?.fontWeight ?? DEFAULT_TEXT_FONT_WEIGHT,
+    align: existing?.align ?? DEFAULT_TEXT_ALIGN,
+    backgroundEnabled: existing?.backgroundEnabled ?? false,
+    backgroundColor: existing?.backgroundColor ?? DEFAULT_TEXT_BACKGROUND_COLOR,
+    backgroundOpacity: existing?.backgroundOpacity ?? DEFAULT_TEXT_BACKGROUND_OPACITY,
+    padding: existing?.padding ?? DEFAULT_TEXT_PADDING,
+    borderEnabled: existing?.borderEnabled ?? false,
+    borderColor: existing?.borderColor ?? DEFAULT_TEXT_BORDER_COLOR,
+    borderRadius: existing?.borderRadius ?? DEFAULT_TEXT_BORDER_RADIUS,
+    style: existing?.style ?? buildStyle(settings),
+    locked: existing?.locked,
+    createdAt: existing?.createdAt ?? Date.now()
+  };
+}
+
 export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef<PointerSession | null>(null);
-  const [textDraft, setTextDraft] = useState<{ point: Point; value: string } | null>(null);
+  const [textDraft, setTextDraft] = useState<{
+    point: Point;
+    value: string;
+    drawableId?: string;
+    createdAt?: number;
+    locked?: boolean;
+  } | null>(null);
   const [cursorPoint, setCursorPoint] = useState<Point | null>(null);
   const [liveDrawables, setLiveDrawables] = useState<Drawable[] | null>(null);
 
@@ -150,59 +459,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     if (!safeDrawable) {
       return;
     }
-
-    ctx.save();
-    ctx.strokeStyle = "#93c5fd";
-    ctx.globalAlpha = 0.9;
-    ctx.setLineDash([8, 6]);
-    ctx.lineWidth = 1.5;
-
-    switch (safeDrawable.type) {
-      case "arrow":
-        ctx.beginPath();
-        ctx.moveTo(safeDrawable.start.x, safeDrawable.start.y);
-        ctx.lineTo(safeDrawable.end.x, safeDrawable.end.y);
-        ctx.stroke();
-        break;
-      case "rectangle":
-      case "support_resistance_zone": {
-        const rect = normalizeRect(safeDrawable.start, safeDrawable.end);
-        ctx.strokeRect(rect.x - 4, rect.y - 4, rect.width + 8, rect.height + 8);
-        break;
-      }
-      case "freehand":
-      case "trend":
-        safeDrawable.points.forEach((point) => {
-          ctx.beginPath();
-          ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
-          ctx.stroke();
-        });
-        break;
-      case "channel":
-        [safeDrawable.baseStart, safeDrawable.baseEnd, safeDrawable.parallelPoint].forEach((point) => {
-          ctx.beginPath();
-          ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
-          ctx.stroke();
-        });
-        break;
-      case "binary_marker":
-        safeDrawable.points.forEach((point) => {
-          ctx.beginPath();
-          ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
-          ctx.stroke();
-        });
-        break;
-      case "text":
-        ctx.strokeRect(
-          safeDrawable.point.x - 8,
-          safeDrawable.point.y - safeDrawable.fontSize,
-          Math.max(60, safeDrawable.text.length * 10),
-          safeDrawable.fontSize + 12
-        );
-        break;
-    }
-
-    ctx.restore();
+    renderSelectionOverlay(ctx, safeDrawable);
   }, [liveDrawables, state.drawables, state.hidden, state.preview, state.selectedDrawableId]);
 
   useEffect(() => {
@@ -210,6 +467,15 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       const session = sessionRef.current;
 
       if (event.key === "Escape") {
+        if (session?.kind === "selection-move" || session?.kind === "selection-anchor") {
+          sessionRef.current = null;
+          setLiveDrawables(null);
+          return;
+        }
+
+        if (state.selectedDrawableId) {
+          dispatch({ type: "select-drawable", id: null });
+        }
         sessionRef.current = null;
         setLiveDrawables(null);
         setTextDraft(null);
@@ -224,6 +490,10 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       }
 
       if (event.key !== "Backspace") {
+        if (event.key.toLowerCase() === "v" && !textDraft) {
+          dispatch({ type: "set-tool", tool: "select" });
+          dispatch({ type: "set-tool-mode", mode: "basic" });
+        }
         return;
       }
 
@@ -248,6 +518,55 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           sessionRef.current = null;
           dispatch({ type: "set-preview", preview: null });
         }
+      } else if (session?.kind === "qm") {
+        event.preventDefault();
+        session.points.pop();
+        if (session.points.length === 0) {
+          sessionRef.current = null;
+          dispatch({ type: "set-preview", preview: null });
+        } else {
+          dispatch({
+            type: "set-preview",
+            preview: {
+              type: "qm_preview",
+              patternType: session.patternType,
+              points: [...session.points],
+              style: buildToolStyle(session.patternType, settings)
+            }
+          });
+        }
+      } else if (session?.kind === "structure-break") {
+        event.preventDefault();
+        sessionRef.current = null;
+        dispatch({ type: "set-preview", preview: null });
+      } else if (session?.kind === "fvg") {
+        event.preventDefault();
+        sessionRef.current = null;
+        dispatch({ type: "set-preview", preview: null });
+      } else if (session?.kind === "ray") {
+        event.preventDefault();
+        sessionRef.current = null;
+        dispatch({ type: "set-preview", preview: null });
+      } else if (session?.kind === "fibonacci") {
+        event.preventDefault();
+        sessionRef.current = null;
+        dispatch({ type: "set-preview", preview: null });
+      } else if (session?.kind === "sweep") {
+        event.preventDefault();
+        if (session.step === 2) {
+          sessionRef.current = { kind: "sweep", step: 1, levelStart: session.levelStart };
+        } else {
+          sessionRef.current = null;
+        }
+        dispatch({ type: "set-preview", preview: null });
+      } else if (session?.kind === "pitchfork") {
+        event.preventDefault();
+        if (session.step === 2 && session.pivotB) {
+          sessionRef.current = { kind: "pitchfork", step: 1, pivotA: session.pivotA };
+        } else {
+          sessionRef.current = null;
+        }
+        dispatch({ type: "set-preview", preview: null });
       }
     };
 
@@ -288,6 +607,20 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     previewShape(null);
   };
 
+  const startTextDraft = (point: Point, drawable?: TextShape) => {
+    setTextDraft({
+      point: drawable?.point ?? point,
+      value: drawable?.text ?? "",
+      drawableId: drawable?.id
+    });
+  };
+
+  const updateLiveSelectedDrawable = (nextDrawable: Drawable) => {
+    setLiveDrawables(
+      state.drawables.map((drawable) => (drawable.id === nextDrawable.id ? nextDrawable : drawable))
+    );
+  };
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (state.overlayMode === "click-through" || state.hidden) {
       return;
@@ -304,7 +637,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           type: "trend",
           direction: inferTrendDirection(trend.points),
           points: [...trend.points],
-          showLabels: true,
+          showLabels: settings.showPatternLabels,
           showArrows: true,
           style: buildStyle(settings),
           createdAt: Date.now()
@@ -338,11 +671,74 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       return;
     }
 
+    if (event.button === 2 && sessionRef.current?.kind === "qm") {
+      event.preventDefault();
+      const qm = sessionRef.current;
+      if (qm.points.length >= 4) {
+        commitDrawable(commitQMDrawable(qm.patternType, [...qm.points, point].slice(0, 5), settings));
+      }
+      cancelSession();
+      return;
+    }
+
+    if (event.button === 2 && sessionRef.current?.kind === "sweep") {
+      event.preventDefault();
+      const sweep = sessionRef.current;
+      if (sweep.step === 2 && sweep.levelEnd) {
+        commitDrawable(commitLiquiditySweepDrawable(sweep.levelStart, sweep.levelEnd, point, settings));
+      }
+      cancelSession();
+      return;
+    }
+
     if (event.ctrlKey) {
       const selected = findTopmostDrawableAtPoint(state.drawables, (drawable) =>
         isPointNearDrawable(point, drawable, 10)
       );
       dispatch({ type: "select-drawable", id: selected?.id ?? null });
+      return;
+    }
+
+    if (state.activeTool === "select") {
+      const selectedDrawable = state.selectedDrawableId
+        ? state.drawables.find((drawable) => drawable.id === state.selectedDrawableId) ?? null
+        : null;
+
+      if (event.button === 0 && selectedDrawable && !selectedDrawable.locked) {
+        const anchor = hitTestAnchorHandle(point, selectedDrawable, 10);
+        if (anchor) {
+          const working = updateDrawableAnchor(selectedDrawable, anchor.id, point);
+          sessionRef.current = {
+            kind: "selection-anchor",
+            drawableId: selectedDrawable.id,
+            anchorId: anchor.id,
+            original: selectedDrawable,
+            working
+          };
+          updateLiveSelectedDrawable(working);
+          return;
+        }
+      }
+
+      const hit = findTopmostDrawableAtPoint(state.drawables, (drawable) =>
+        isPointNearDrawable(point, drawable, 10)
+      );
+
+      if (!hit) {
+        dispatch({ type: "select-drawable", id: null });
+        return;
+      }
+
+        dispatch({ type: "select-drawable", id: hit.id });
+        if (event.button === 0 && !hit.locked) {
+          sessionRef.current = {
+            kind: "selection-move",
+            drawableId: hit.id,
+          start: point,
+          original: hit,
+          working: hit
+        };
+      }
       return;
     }
 
@@ -374,6 +770,46 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         }
         sessionRef.current = { kind: "shape", tool: state.activeTool, start: point };
         break;
+      case "bos":
+      case "choch":
+        if (event.button !== 0) {
+          return;
+        }
+        if (
+          sessionRef.current?.kind === "structure-break" &&
+          sessionRef.current.patternType === state.activeTool
+        ) {
+          commitDrawable(
+            commitStructureBreakDrawable(state.activeTool, sessionRef.current.start, point, settings)
+          );
+          cancelSession();
+          break;
+        }
+
+        sessionRef.current = { kind: "structure-break", patternType: state.activeTool, start: point };
+        previewShape(null);
+        break;
+      case "fvg":
+        if (event.button !== 0) {
+          return;
+        }
+        if (sessionRef.current?.kind === "fvg") {
+          commitDrawable(commitFVGDrawable(sessionRef.current.start, point, settings));
+          cancelSession();
+          break;
+        }
+
+        sessionRef.current = { kind: "fvg", start: point };
+        previewShape({
+          id: "preview-fvg",
+          type: "fvg",
+          points: [point, point],
+          label: "FVG",
+          extendRight: false,
+          style: buildToolStyle("fvg", settings),
+          createdAt: Date.now()
+        });
+        break;
       case "eraser":
         if (event.button !== 0) {
           return;
@@ -390,7 +826,19 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           return;
         }
         sessionRef.current = { kind: "text", point };
-        setTextDraft({ point, value: "" });
+        startTextDraft(point);
+        break;
+      case "horizontal_line":
+        if (event.button !== 0) {
+          return;
+        }
+        commitDrawable(commitHorizontalLineDrawable(point, settings));
+        break;
+      case "vertical_marker":
+        if (event.button !== 0) {
+          return;
+        }
+        commitDrawable(commitVerticalMarkerDrawable(point, settings));
         break;
       case "call_marker":
       case "put_marker": {
@@ -423,6 +871,130 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         previewShape({ type: "trend_preview", points: [...trend.points], style });
         break;
       }
+      case "qm_bullish":
+      case "qm_bearish": {
+        if (event.button !== 0) {
+          return;
+        }
+        const qm =
+          sessionRef.current?.kind === "qm" && sessionRef.current.patternType === state.activeTool
+            ? sessionRef.current
+            : { kind: "qm" as const, patternType: state.activeTool, points: [] as Point[] };
+
+        qm.points = [...qm.points, point];
+        sessionRef.current = qm;
+
+        if (qm.points.length >= 5) {
+          commitDrawable(commitQMDrawable(state.activeTool, qm.points.slice(0, 5), settings));
+          cancelSession();
+          break;
+        }
+
+        previewShape({
+          type: "qm_preview",
+          patternType: state.activeTool,
+          points: [...qm.points],
+          style: buildToolStyle(state.activeTool, settings)
+        });
+        break;
+      }
+      case "liquidity_sweep": {
+        if (event.button !== 0) {
+          return;
+        }
+        const sweep = sessionRef.current;
+        if (!sweep || sweep.kind !== "sweep") {
+          sessionRef.current = { kind: "sweep", step: 1, levelStart: point };
+          previewShape(null);
+          break;
+        }
+
+        if (sweep.step === 1) {
+          sessionRef.current = { kind: "sweep", step: 2, levelStart: sweep.levelStart, levelEnd: point };
+          previewShape({
+            id: "preview-sweep",
+            type: "liquidity_sweep",
+            points: [sweep.levelStart, point, point],
+            label: "Sweep",
+            showSweepMarker: true,
+            style: buildToolStyle("liquidity_sweep", settings),
+            createdAt: Date.now()
+          });
+          break;
+        }
+
+        commitDrawable(commitLiquiditySweepDrawable(sweep.levelStart, sweep.levelEnd ?? point, point, settings));
+        cancelSession();
+        break;
+      }
+      case "ray":
+        if (event.button !== 0) {
+          return;
+        }
+        if (sessionRef.current?.kind === "ray") {
+          commitDrawable(commitRayDrawable(sessionRef.current.start, point, settings));
+          cancelSession();
+          break;
+        }
+        sessionRef.current = { kind: "ray", start: point };
+        previewShape(null);
+        break;
+      case "fibonacci_retracement":
+      case "fibonacci_fan":
+        if (event.button !== 0) {
+          return;
+        }
+        if (
+          sessionRef.current?.kind === "fibonacci" &&
+          sessionRef.current.patternType === state.activeTool
+        ) {
+          commitDrawable(
+            state.activeTool === "fibonacci_retracement"
+              ? commitFibonacciRetracementDrawable(sessionRef.current.start, point, settings)
+              : commitFibonacciFanDrawable(sessionRef.current.start, point, settings)
+          );
+          cancelSession();
+          break;
+        }
+        sessionRef.current = { kind: "fibonacci", patternType: state.activeTool, start: point };
+        previewShape(null);
+        break;
+      case "andrews_pitchfork":
+        if (event.button !== 0) {
+          return;
+        }
+        if (!sessionRef.current || sessionRef.current.kind !== "pitchfork") {
+          sessionRef.current = { kind: "pitchfork", step: 1, pivotA: point };
+          previewShape(null);
+          break;
+        }
+        if (sessionRef.current.step === 1) {
+          sessionRef.current = {
+            kind: "pitchfork",
+            step: 2,
+            pivotA: sessionRef.current.pivotA,
+            pivotB: point
+          };
+          previewShape({
+            id: "preview-pitchfork",
+            type: "andrews_pitchfork",
+            points: [sessionRef.current.pivotA, point, point],
+            showLabels: settings.showPatternLabels,
+            style: buildToolStyle("andrews_pitchfork", settings),
+            createdAt: Date.now()
+          });
+          break;
+        }
+        commitDrawable(
+          commitAndrewsPitchforkDrawable(
+            sessionRef.current.pivotA,
+            sessionRef.current.pivotB ?? point,
+            point,
+            settings
+          )
+        );
+        cancelSession();
+        break;
       case "channel": {
         if (event.button !== 0) {
           return;
@@ -483,13 +1055,36 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     const baseStyle = buildStyle(settings);
     const maybeConstrained =
       event.shiftKey &&
-      (session.kind === "shape" || session.kind === "trend" || session.kind === "channel")
+      (session.kind === "shape" ||
+        session.kind === "ray" ||
+        session.kind === "trend" ||
+        session.kind === "channel" ||
+        session.kind === "structure-break" ||
+        session.kind === "fvg" ||
+        session.kind === "fibonacci" ||
+        session.kind === "pitchfork" ||
+        session.kind === "sweep")
+      || session.kind === "qm"
         ? constrainAngle(
             session.kind === "shape"
-              ? session.start
-              : session.kind === "trend"
-                ? session.points[session.points.length - 1]
-                : session.baseStart,
+                  ? session.start
+                : session.kind === "ray"
+                  ? session.start
+                : session.kind === "trend"
+                  ? session.points[session.points.length - 1]
+                : session.kind === "channel"
+                  ? session.baseStart
+                    : session.kind === "structure-break"
+                      ? session.start
+                      : session.kind === "fvg"
+                        ? session.start
+                      : session.kind === "fibonacci"
+                        ? session.start
+                      : session.kind === "pitchfork"
+                        ? session.pivotB ?? session.pivotA
+                      : session.kind === "sweep"
+                        ? session.levelEnd ?? session.levelStart
+                        : session.points[session.points.length - 1],
             point
           )
         : point;
@@ -507,7 +1102,17 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         });
         break;
       case "shape":
-        if (session.tool === "rectangle") {
+        if (state.activeTool === "fvg" && session.tool === "rectangle") {
+          previewShape({
+            id: "preview-fvg",
+            type: "fvg",
+            points: [session.start, maybeConstrained],
+            label: "FVG",
+            extendRight: false,
+            style: buildToolStyle("fvg", settings),
+            createdAt: Date.now()
+          });
+        } else if (session.tool === "rectangle") {
           previewShape({
             id: "preview-rect",
             type: "rectangle",
@@ -569,7 +1174,115 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           });
         }
         break;
+      case "qm":
+        previewShape({
+          type: "qm_preview",
+          patternType: session.patternType,
+          points: [...session.points, maybeConstrained],
+          style: buildToolStyle(session.patternType, settings)
+        });
+        break;
+      case "structure-break":
+        previewShape({
+          id: `preview-${session.patternType}`,
+          type: session.patternType,
+          points: [session.start, maybeConstrained],
+          label: session.patternType === "bos" ? "BOS" : "CHoCH",
+          direction: inferBreakDirection([session.start, maybeConstrained]),
+          showArrow: true,
+          style: buildToolStyle(session.patternType, settings),
+          createdAt: Date.now()
+        });
+        break;
+      case "fvg":
+        previewShape({
+          id: "preview-fvg",
+          type: "fvg",
+          points: [session.start, maybeConstrained],
+          label: "FVG",
+          extendRight: false,
+          style: buildToolStyle("fvg", settings),
+          createdAt: Date.now()
+        });
+        break;
+      case "ray":
+        previewShape({
+          id: "preview-ray",
+          type: "ray",
+          points: [session.start, maybeConstrained],
+          label: "Ray",
+          style: buildToolStyle("ray", settings),
+          createdAt: Date.now()
+        });
+        break;
+      case "fibonacci":
+        if (session.patternType === "fibonacci_retracement") {
+          previewShape({
+            id: "preview-fib-retracement",
+            type: "fibonacci_retracement",
+            points: [session.start, maybeConstrained],
+            levels: [...DEFAULT_FIBONACCI_RETRACEMENT_LEVELS],
+            showLabels: settings.showPatternLabels,
+            showPercentages: false,
+            extendLeft: false,
+            extendRight: false,
+            style: buildToolStyle("fibonacci_retracement", settings),
+            createdAt: Date.now()
+          });
+          break;
+        }
+
+        previewShape({
+          id: "preview-fib-fan",
+          type: "fibonacci_fan",
+          points: [session.start, maybeConstrained],
+          levels: [...DEFAULT_FIBONACCI_FAN_LEVELS],
+          showLabels: settings.showPatternLabels,
+          showPercentages: false,
+          style: buildToolStyle("fibonacci_fan", settings),
+          createdAt: Date.now()
+        });
+        break;
+      case "sweep":
+        if (session.step === 2 && session.levelEnd) {
+          previewShape({
+            id: "preview-sweep",
+            type: "liquidity_sweep",
+            points: [session.levelStart, session.levelEnd, maybeConstrained],
+            label: "Sweep",
+            showSweepMarker: true,
+            style: buildToolStyle("liquidity_sweep", settings),
+            createdAt: Date.now()
+          });
+        }
+        break;
+      case "pitchfork":
+        if (session.step === 2 && session.pivotB) {
+          previewShape({
+            id: "preview-pitchfork",
+            type: "andrews_pitchfork",
+            points: [session.pivotA, session.pivotB, maybeConstrained],
+            showLabels: settings.showPatternLabels,
+            variant: "standard",
+            showMedianLine: true,
+            showOuterLines: true,
+            showAnchorLine: false,
+            style: buildToolStyle("andrews_pitchfork", settings),
+            createdAt: Date.now()
+          });
+        }
+        break;
       case "text":
+        break;
+      case "selection-move": {
+        const delta = { x: point.x - session.start.x, y: point.y - session.start.y };
+        session.working = moveDrawable(session.original, delta);
+        updateLiveSelectedDrawable(session.working);
+        break;
+      }
+      case "selection-anchor":
+        session.working = updateDrawableAnchor(session.original, session.anchorId, point);
+        updateLiveSelectedDrawable(session.working);
         break;
     }
   };
@@ -597,7 +1310,9 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         cancelSession();
         break;
       case "shape":
-        if (session.tool === "arrow") {
+        if (state.activeTool === "fvg" && session.tool === "rectangle") {
+          commitDrawable(commitFVGDrawable(session.start, point, settings));
+        } else if (session.tool === "arrow") {
           commitDrawable({
             id: createId("arrow"),
             type: "arrow",
@@ -645,28 +1360,80 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       case "text":
       case "trend":
       case "channel":
+      case "qm":
+      case "structure-break":
+      case "ray":
+      case "fvg":
+      case "fibonacci":
+      case "sweep":
+      case "pitchfork":
         break;
+      case "selection-move":
+      case "selection-anchor": {
+        if (JSON.stringify(session.original) !== JSON.stringify(session.working)) {
+          dispatch({ type: "replace-selected-drawable", drawable: sanitizeDrawable(session.working) ?? session.original });
+        }
+        setLiveDrawables(null);
+        sessionRef.current = null;
+        break;
+      }
     }
   };
 
   const commitText = () => {
-    if (!textDraft || !textDraft.value.trim()) {
+    if (!textDraft) {
+      return;
+    }
+
+    const existing =
+      textDraft.drawableId !== undefined
+        ? state.drawables.find((drawable): drawable is TextShape => drawable.id === textDraft.drawableId && drawable.type === "text")
+        : undefined;
+
+    if (!textDraft.value.trim()) {
       setTextDraft(null);
       sessionRef.current = null;
       return;
     }
 
-    commitDrawable({
-      id: createId("text"),
-      type: "text",
-      point: textDraft.point,
-      text: textDraft.value.trim(),
-      fontSize: 18,
-      style: buildStyle(settings),
-      createdAt: Date.now()
-    });
+    const nextDrawable = sanitizeDrawable(
+      buildTextDrawable(textDraft.point, textDraft.value, settings, existing)
+    );
+    if (!nextDrawable || nextDrawable.type !== "text") {
+      setTextDraft(null);
+      sessionRef.current = null;
+      return;
+    }
+
+    if (existing) {
+      dispatch({ type: "replace-selected-drawable", drawable: nextDrawable });
+    } else {
+      dispatch({ type: "commit", drawable: nextDrawable });
+    }
+
     setTextDraft(null);
     sessionRef.current = null;
+  };
+
+  const handleDoubleClick = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (state.overlayMode === "click-through" || state.hidden || textDraft) {
+      return;
+    }
+
+    const point = getPoint(event);
+    const hit = findTopmostDrawableAtPoint(state.drawables, (drawable) =>
+      drawable.type === "text" && isPointNearDrawable(point, drawable, 8)
+    );
+
+    if (!hit || hit.type !== "text" || hit.locked) {
+      return;
+    }
+
+    dispatch({ type: "select-drawable", id: hit.id });
+    sessionRef.current = null;
+    setLiveDrawables(null);
+    previewShape(null);
+    startTextDraft(hit.point, hit);
   };
 
   const hintText =
@@ -674,10 +1441,59 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       ? "Trend: left click adds points, right click finishes, Esc cancels, Backspace removes last"
       : sessionRef.current?.kind === "channel"
         ? "Channel: click start, click end, move for width, click or right click to finish"
-        : state.activeTool === "trend"
+        : sessionRef.current?.kind === "qm"
+          ? `QM ${sessionRef.current.patternType === "qm_bullish" ? "Bullish" : "Bearish"}: ${getQMHintLabel(
+              sessionRef.current.patternType,
+              sessionRef.current.points.length
+            )}`
+        : sessionRef.current?.kind === "structure-break"
+          ? `${sessionRef.current.patternType === "bos" ? "BOS" : "CHoCH"}: Point 2/2`
+        : sessionRef.current?.kind === "fvg"
+          ? "FVG: Point 2/2: Select opposite corner"
+        : sessionRef.current?.kind === "ray"
+          ? "Ray: Point 2/2: Select direction point"
+        : sessionRef.current?.kind === "fibonacci"
+          ? sessionRef.current.patternType === "fibonacci_retracement"
+            ? "Fib Retracement: Point 2/2: Select swing end"
+            : "Fib Fan: Point 2/2: Select swing end"
+        : sessionRef.current?.kind === "sweep"
+          ? sessionRef.current.step === 1
+            ? "Sweep: Point 2/3: Select liquidity level end"
+            : "Sweep: Point 3/3: Select sweep wick/point"
+        : sessionRef.current?.kind === "pitchfork"
+          ? sessionRef.current.step === 1
+            ? "Pitchfork: Point 2/3: Select pivot B"
+            : "Pitchfork: Point 3/3: Select pivot C"
+      : state.activeTool === "trend"
           ? "Trend tool ready"
           : state.activeTool === "channel"
             ? "Channel tool ready"
+            : state.activeTool === "horizontal_line"
+              ? "Horizontal Line: click to place"
+              : state.activeTool === "vertical_marker"
+                ? "Vertical Marker: click to place"
+                : state.activeTool === "ray"
+                  ? "Ray: Point 1/2: Select start"
+                  : state.activeTool === "fibonacci_retracement"
+                    ? "Fib Retracement: Point 1/2: Select swing start"
+                    : state.activeTool === "fibonacci_fan"
+                      ? "Fib Fan: Point 1/2: Select swing start"
+                      : state.activeTool === "andrews_pitchfork"
+                        ? "Pitchfork: Point 1/3: Select pivot A"
+            : state.activeTool === "qm_bullish"
+              ? "QM Bullish: left click places 5 points, right click finishes, Esc cancels"
+              : state.activeTool === "qm_bearish"
+                ? "QM Bearish: left click places 5 points, right click finishes, Esc cancels"
+                : state.activeTool === "bos"
+                  ? "BOS: Point 1/2: Select structure level"
+                  : state.activeTool === "choch"
+                    ? "CHoCH: Point 1/2: Select previous structure"
+                    : state.activeTool === "fvg"
+                      ? "FVG: Point 1/2: Select gap corner"
+                      : state.activeTool === "liquidity_sweep"
+                        ? "Sweep: Point 1/3: Select liquidity level start"
+            : state.activeTool === "select"
+              ? "Select: click object, drag to move, drag blue handles to edit. Locked objects stay selectable but cannot be edited."
             : state.selectedDrawableId
               ? "Selection active: Delete removes the selected object"
               : "Ctrl+click selects an existing object";
@@ -691,9 +1507,10 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={cancelSession}
+        onDoubleClick={handleDoubleClick}
         onContextMenu={(event) => event.preventDefault()}
       />
-      {cursorPoint ? (
+      {settings.showCursorHints && cursorPoint ? (
         <div
           className="pointer-events-none absolute rounded-full border border-slate-700/90 bg-slate-950/92 px-3 py-1 text-[11px] text-slate-200 shadow-overlay"
           style={{
@@ -705,20 +1522,23 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         </div>
       ) : null}
       {textDraft ? (
-        <input
+        <textarea
           autoFocus
           value={textDraft.value}
           onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
           onBlur={commitText}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
               commitText();
             } else if (event.key === "Escape") {
               setTextDraft(null);
               sessionRef.current = null;
             }
           }}
-          className="absolute rounded border border-slate-700 bg-slate-950/95 px-3 py-2 text-sm text-slate-100 outline-none"
+          rows={3}
+          placeholder="Type annotation text"
+          className="absolute min-h-[88px] w-[260px] resize rounded-2xl border border-slate-700/90 bg-slate-950/95 px-3 py-2 text-sm leading-6 text-slate-100 shadow-[0_20px_50px_rgba(2,8,23,0.45)] outline-none"
           style={{
             left: textDraft.point.x,
             top: textDraft.point.y,
