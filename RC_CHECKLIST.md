@@ -16,7 +16,7 @@
 ## Startup
 
 - App starts quickly
-- Toolbar shows `Starting TRInk…`
+- Toolbar shows `Starting TRInk...`
 - Toolbar reaches `Ready`
 - Overlay sync problems are visible in the toolbar if they occur
 - Shortcut registration conflicts do not block launch

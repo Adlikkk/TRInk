@@ -1,27 +1,38 @@
 # End User License Agreement
 
+TradeReality Ink (`TRInk`) is proprietary software by TradeReality.
+
 This software is provided as a local desktop annotation tool for educational, review, presentation, and content-creation workflows.
 
-By using TradeReality Ink, you agree that:
+## Allowed Use
 
-- The software is a local annotation overlay only.
-- The current distribution model makes the software available as a free bonus tool for registered TradeReality users during this distribution phase unless TradeReality changes distribution terms later.
-- The software is not financial advice.
-- The software does not provide trading signals.
-- The software does not automate trading or interact with broker accounts.
-- The software does not integrate with brokers, browser pages, or third-party chart DOMs.
-- The software does not use Expiry/trade-timing UI or platform timing integration.
-- The software stores sessions and exports as local files chosen by the user.
-- You may use the software for personal trading education, review, and content creation.
-- You are responsible for complying with all platform rules, local laws, and recording obligations.
-- The authors provide the software on an "as is" basis without guarantees of fitness for any trading outcome.
+- Local annotation and markup
+- Personal trading education
+- Review and replay workflows
+- Content creation and teaching
 
-Prohibited use includes:
+## Restrictions
 
-- Credential harvesting
-- Broker or browser injection
-- Security bypass attempts
-- Anti-cheat bypass
-- Automated click or trade execution
-- Reverse engineering, resale, rebranding, or redistribution of modified versions without permission
-- Redistribution that misrepresents the software's capabilities
+- No resale or rebranding
+- No redistribution of modified versions without permission
+- No broker integration or broker automation
+- No trading automation or automated click execution
+- No credential harvesting
+- No browser or process injection
+- No platform or security bypass attempts
+
+## Product Scope
+
+- Local desktop annotation overlay only
+- Free for registered TradeReality users during the current distribution phase, unless TradeReality changes distribution terms later
+- Not financial advice
+- Not trading signals
+- Not a broker or chart DOM integration
+- Not Expiry or trade-timing assistance
+- Sessions and exports are local files chosen by the user
+
+## Disclaimer
+
+The software is provided "as is" without guarantees of fitness for any trading outcome.
+
+You remain responsible for complying with local law, platform rules, and any disclosure or recording obligations relevant to your use.

@@ -23,5 +23,6 @@ yarn-error.log*
 
 coverage/
 release/
+AGENT_TASK.md
 
 .pnpm-store/

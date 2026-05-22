@@ -1,17 +1,18 @@
 # Privacy Policy
 
-TradeReality Ink stores settings and user-created session/export files locally on the user's device to support overlay preferences and manual annotation workflows.
+TradeReality Ink stores settings and user-created session/export files locally on the user's device.
 
-TRInk does not collect telemetry by default.
+## TRInk Does Not Do
 
-TRInk does not require a cloud account or in-app login to use the local desktop overlay.
+- No telemetry by default
+- No in-app login requirement
+- No cloud sync
+- No broker integration
+- No chart DOM reading
+- No screen scraping
+- No automated trade execution
+- No transmission of credentials, cookies, or broker data
 
-TRInk does not transmit screen content, trading activity, credentials, cookies, or broker data.
+The manual countdown timer is local-only. It does not read broker, chart, or platform time.
 
-TRInk does not integrate with brokers or trading platforms and does not automate trades.
-
-TRInk does not provide cloud sync, browser integration, broker DOM reading, screen scraping, or Expiry/trade-timing features.
-
-The countdown timer is manual and local-only. It does not read broker, chart, or platform time.
-
-If future releases add optional cloud or sync features, this policy must be updated before those features are enabled.
+If future releases add optional networked features, this policy must be updated before those features are enabled.

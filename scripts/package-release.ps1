@@ -90,6 +90,7 @@ New-Item -ItemType Directory -Path $releaseFolder -Force | Out-Null
 $commonFiles = @(
   @{ Source = $installerSource; Destination = $installerName }
   @{ Source = (Join-Path $repoRoot "README.md"); Destination = "README.md" }
+  @{ Source = (Join-Path $repoRoot "LICENSE.md"); Destination = "LICENSE.md" }
   @{ Source = (Join-Path $repoRoot "PRIVACY.md"); Destination = "PRIVACY.md" }
   @{ Source = (Join-Path $repoRoot "EULA.md"); Destination = "EULA.md" }
   @{ Source = (Join-Path $repoRoot "RELEASE_NOTES.md"); Destination = "RELEASE_NOTES.md" }
