@@ -1,0 +1,103 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "overlay",
+        "title": "TRInk Overlay",
+        "url": "index.html?window=overlay",
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": true,
+        "shadow": false,
+        "focus": true
+      },
+      {
+        "label": "toolbar",
+        "title": "TRInk Toolbar",
+        "url": "index.html?window=toolbar",
+        "width": 860,
+        "height": 76,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": true,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "palette",
+        "title": "TRInk Palette",
+        "url": "index.html?window=palette",
+        "width": 420,
+        "height": 720,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "settings",
+        "title": "TRInk Settings",
+        "url": "index.html?window=settings",
+        "width": 700,
+        "height": 720,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": false
+      }
+    ],
+    "security": {
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "publisher": "TradeReality",
+    "copyright": "Copyright (c) TradeReality",
+    "licenseFile": "installer-assets/EULA.txt",
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "headerImage": "installer-assets/nsis-header.bmp",
+        "sidebarImage": "installer-assets/nsis-sidebar.bmp",
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "TradeReality"
+      }
+    }
+  }
+}

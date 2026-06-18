@@ -26,12 +26,6 @@ enum OverlayCommand {
     ResetTimer,
 }
 
-#[derive(Clone, serde::Serialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-enum ToolbarCommand {
-    OpenSettings,
-}
-
 #[derive(Clone, serde::Deserialize)]
 struct ShortcutBindingPayload {
     action: String,
@@ -62,15 +56,59 @@ fn toolbar_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("toolbar")
 }
 
+fn palette_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("palette")
+}
+
+fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("settings")
+}
+
+fn enforce_overlay_click_through_target(target: &str) -> Result<(), String> {
+    if target != "overlay" {
+        let message = format!("Refusing to apply click-through to non-overlay window '{target}'.");
+        eprintln!("{message}");
+        return Err(message);
+    }
+
+    Ok(())
+}
+
+fn bring_toolbar_to_front_internal(app: &AppHandle, focus_toolbar: bool) -> Result<(), String> {
+    let toolbar = toolbar_window(app).ok_or_else(|| "Toolbar window not found".to_string())?;
+
+    toolbar.show().map_err(|error| error.to_string())?;
+    toolbar
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
+
+    if focus_toolbar {
+        toolbar.set_focus().map_err(|error| error.to_string())?;
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(hwnd) = toolbar.hwnd() {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
+            unsafe {
+                let _ = SetWindowPos(
+                    HWND(hwnd.0 as _),
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+        println!("[TRInk Basic Input] toolbar topmost reasserted");
+    }
+
+    Ok(())
+}
+
 fn emit_overlay_command(app: &AppHandle, command: OverlayCommand) {
     if let Some(window) = overlay_window(app) {
         let _ = window.emit("trink://overlay-command", command);
-    }
-}
-
-fn emit_toolbar_command(app: &AppHandle, command: ToolbarCommand) {
-    if let Some(window) = toolbar_window(app) {
-        let _ = window.emit("trink://toolbar-command", command);
     }
 }
 
@@ -103,6 +141,17 @@ fn show_overlay_windows(app: &AppHandle, visible: bool, focus_toolbar: bool) {
         }
     }
 
+    // Hide secondary windows when hiding the app; don't auto-show them
+    if !visible {
+        if let Some(window) = palette_window(app) {
+            let _ = window.hide();
+        }
+        if let Some(window) = settings_window(app) {
+            let _ = window.hide();
+        }
+    }
+
+    let _ = bring_toolbar_to_front_internal(app, focus_toolbar && visible);
     emit_visibility(app, visible);
 }
 
@@ -299,15 +348,28 @@ fn apply_shortcut_bindings_internal(
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_hide =
-        MenuItem::with_id(app, "toggle_overlay", "Show / Hide TRInk", true, None::<&str>)?;
-    let open_settings =
-        MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_hide, &open_settings, &quit])?;
+    let edition_label = env!("TRINK_EDITION_LABEL");
+    let is_basic = edition_label == "Basic";
 
-    TrayIconBuilder::new()
-        .tooltip("TradeReality Ink")
+    let menu = if is_basic {
+        let label = MenuItem::with_id(app, "label", "TRInk Basic", false, None::<&str>)?;
+        let show_toolbar = MenuItem::with_id(app, "show_toolbar", "Show toolbar", true, None::<&str>)?;
+        let hide_toolbar = MenuItem::with_id(app, "hide_toolbar", "Hide toolbar", true, None::<&str>)?;
+        let enable_ct = MenuItem::with_id(app, "enable_ct", "Enable click-through", true, None::<&str>)?;
+        let disable_ct = MenuItem::with_id(app, "disable_ct", "Disable click-through / Edit mode", true, None::<&str>)?;
+        let open_settings = MenuItem::with_id(app, "open_settings", "Settings", true, None::<&str>)?;
+        let clear = MenuItem::with_id(app, "clear_drawings", "Clear drawings", true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+        Menu::with_items(app, &[&label, &show_toolbar, &hide_toolbar, &enable_ct, &disable_ct, &open_settings, &clear, &quit])?
+    } else {
+        let show_hide = MenuItem::with_id(app, "toggle_overlay", "Show / Hide TRInk", true, None::<&str>)?;
+        let open_settings = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+        Menu::with_items(app, &[&show_hide, &open_settings, &quit])?
+    };
+
+    let mut builder = TrayIconBuilder::new()
+        .tooltip(env!("TRINK_PRODUCT_NAME"))
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -317,30 +379,141 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     .unwrap_or(true);
                 show_overlay_windows(app, !visible, true);
             }
+            "show_toolbar" => {
+                show_overlay_windows(app, true, true);
+            }
+            "hide_toolbar" => {
+                show_overlay_windows(app, false, true);
+            }
+            "enable_ct" => {
+                let _ = app.emit("tray-event", "enable-click-through");
+            }
+            "disable_ct" => {
+                let _ = app.emit("tray-event", "disable-click-through");
+            }
+            "clear_drawings" => {
+                let _ = app.emit("tray-event", "clear-drawings");
+            }
             "open_settings" => {
                 show_overlay_windows(app, true, true);
-                emit_toolbar_command(app, ToolbarCommand::OpenSettings);
+                if let Some(window) = settings_window(app) {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             "quit" => app.exit(0),
             _ => {}
-        })
-        .build(app)?;
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder.build(app)?;
 
     Ok(())
 }
 
 #[tauri::command]
 fn set_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
+    enforce_overlay_click_through_target("overlay")?;
     let window = overlay_window(&app).ok_or_else(|| "Overlay window not found".to_string())?;
     window
         .set_ignore_cursor_events(enabled)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    bring_toolbar_to_front_internal(&app, false)?;
+    Ok(())
 }
 
 #[tauri::command]
 fn set_overlay_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     show_overlay_windows(&app, visible, visible);
     Ok(())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn toggle_palette_window(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
+    if let Some(window) = palette_window(&app) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        if is_visible {
+            let _ = window.hide();
+        } else {
+            let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_palette_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = palette_window(&app) {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn toggle_settings_window(app: AppHandle, x: f64, y: f64) -> Result<(), String> {
+    if let Some(window) = settings_window(&app) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        if is_visible {
+            let _ = window.hide();
+        } else {
+            let mut final_x = x;
+            let mut final_y = y;
+
+            if let Some(monitor) = overlay_window(&app).and_then(|w| w.current_monitor().unwrap_or(None)).or_else(|| window.primary_monitor().unwrap_or(None)) {
+                let sf = monitor.scale_factor();
+                let m_pos = monitor.position().to_logical::<f64>(sf);
+                let m_size = monitor.size().to_logical::<f64>(sf);
+                
+                let cur_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 720)).to_logical::<f64>(sf);
+                let new_width = cur_size.width.min(m_size.width - 48.0).min(720.0);
+                let new_height = cur_size.height.min(m_size.height - 48.0).min(720.0);
+                
+                let _ = window.set_size(tauri::LogicalSize::new(new_width, new_height));
+
+                if final_x + new_width > m_pos.x + m_size.width {
+                    final_x = m_pos.x + m_size.width - new_width - 12.0;
+                }
+                if final_x < m_pos.x {
+                    final_x = m_pos.x + 12.0;
+                }
+
+                if final_y + new_height > m_pos.y + m_size.height {
+                    final_y = m_pos.y + m_size.height - new_height - 12.0;
+                }
+                if final_y < m_pos.y {
+                    final_y = m_pos.y + 12.0;
+                }
+            }
+
+            let _ = window.set_position(tauri::LogicalPosition::new(final_x, final_y));
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_settings_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = settings_window(&app) {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn bring_toolbar_to_front(app: AppHandle) -> Result<(), String> {
+    bring_toolbar_to_front_internal(&app, false)
 }
 
 #[tauri::command]
@@ -364,13 +537,33 @@ pub fn run() {
         .setup(|app| {
             app.manage(ShortcutRegistryState::default());
             setup_tray(app.handle())?;
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.set_always_on_top(true);
+            }
+            if let Some(w) = app.get_webview_window("toolbar") {
+                let _ = w.set_always_on_top(true);
+                let _ = w.set_ignore_cursor_events(false);
+            }
+            if let Some(w) = app.get_webview_window("palette") {
+                let _ = w.set_ignore_cursor_events(false);
+            }
+            if let Some(w) = app.get_webview_window("settings") {
+                let _ = w.set_ignore_cursor_events(false);
+            }
+            let _ = bring_toolbar_to_front_internal(app.handle(), false);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             set_click_through,
             set_overlay_visible,
-            apply_shortcut_bindings
+            apply_shortcut_bindings,
+            quit_app,
+            toggle_palette_window,
+            close_palette_window,
+            toggle_settings_window,
+            close_settings_window,
+            bring_toolbar_to_front
         ])
         .run(tauri::generate_context!())
-        .expect("error while running TradeReality Ink");
+        .expect("error while running TRInk");
 }

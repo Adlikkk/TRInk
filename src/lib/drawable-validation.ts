@@ -395,6 +395,7 @@ export function sanitizeDrawable(drawable: unknown): Drawable | null {
 
       return { ...candidate, points, style, locked: sanitizeLocked(candidate.locked) };
     }
+    case "line":
     case "arrow": {
       if (!isPoint(candidate.start) || !isPoint(candidate.end)) {
         return null;

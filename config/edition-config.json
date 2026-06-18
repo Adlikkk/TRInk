@@ -1,0 +1,35 @@
+{
+  "defaultEdition": "trading",
+  "publisher": "TradeReality",
+  "channel": "beta",
+  "editions": {
+    "basic": {
+      "edition": "basic",
+      "editionLabel": "Basic",
+      "productName": "TRInk Basic",
+      "shortName": "TRInk Basic",
+      "distribution": "TRInk Basic",
+      "identifier": "com.tradereality.trink.basic",
+      "executableName": "trink-basic",
+      "version": "0.1.0",
+      "installerBaseName": "TRInk Basic",
+      "releaseFolder": "TRInk-Basic-0.1.0-beta",
+      "bundleShortDescription": "Local screen annotation overlay",
+      "bundleLongDescription": "TRInk Basic is a local-only desktop screen annotation overlay for quick drawing, teaching, and review."
+    },
+    "trading": {
+      "edition": "trading",
+      "editionLabel": "Trading",
+      "productName": "TradeReality Ink",
+      "shortName": "TRInk Trading",
+      "distribution": "TradeReality Tools",
+      "identifier": "com.tradereality.trink.trading",
+      "executableName": "trink",
+      "version": "0.3.11",
+      "installerBaseName": "TradeReality Ink",
+      "releaseFolder": "TRInk-Trading-0.3.11-beta",
+      "bundleShortDescription": "Windows-first desktop overlay annotation app",
+      "bundleLongDescription": "TradeReality Ink is a local-only desktop annotation overlay for educational chart markup and recording workflows."
+    }
+  }
+}

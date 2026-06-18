@@ -1,6 +1,6 @@
 # TRInk Signing Preparation
 
-Version: `0.3.0`
+Version: `0.3.11`
 
 TRInk beta builds are currently unsigned.
 

@@ -7,7 +7,9 @@ import {
   Highlighter,
   MousePointerClick,
   PenTool,
+  Power,
   Redo2,
+  RefreshCcw,
   Search,
   Settings2,
   Trash2,
@@ -26,8 +28,11 @@ import { formatTimerClock } from "../lib/timer";
 import type { AppSettings } from "../types/settings";
 import type { ToolKind } from "../types/drawables";
 import type { ToolbarSnapshot } from "../lib/window-protocol";
+import type { AppEdition } from "../editions/edition";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 type ToolbarProps = {
+  edition: AppEdition;
   snapshot: ToolbarSnapshot;
   settings: AppSettings;
   shortcutStatuses: ShortcutRegistrationStatus[];
@@ -38,19 +43,25 @@ type ToolbarProps = {
   onUndo: () => void;
   onRedo: () => void;
   onClear: () => void;
-  onSaveSession: () => void;
-  onLoadSession: () => void;
-  onExportAnnotationsPng: () => void;
-  onExportAnnotationsJson: () => void;
-  onTimerPreset: (durationMs: number, preset: AppSettings["timerPreset"]) => void;
-  onToggleTimerVisibility: () => void;
-  onStartTimer: () => void;
-  onPauseTimer: () => void;
-  onResumeTimer: () => void;
-  onResetTimer: () => void;
+  onSaveSession?: () => void;
+  onLoadSession?: () => void;
+  onExportAnnotationsPng?: () => void;
+  onExportAnnotationsJson?: () => void;
+  onTimerPreset?: (durationMs: number, preset: AppSettings["timerPreset"]) => void;
+  onToggleTimerVisibility?: () => void;
+  onStartTimer?: () => void;
+  onPauseTimer?: () => void;
+  onResumeTimer?: () => void;
+  onResetTimer?: () => void;
   onToggleHidden: () => void;
   onToggleClickThrough: () => void;
   onToggleSettings: () => void;
+  onRotateOrientation: () => void;
+  onOpenPalette: () => void;
+  onQuit: () => void;
+  onDragPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
+  onDragPointerMove: (e: ReactPointerEvent<HTMLElement>) => void;
+  onDragPointerUp: (e: ReactPointerEvent<HTMLElement>) => void;
 };
 
 const TOOLBAR_SIZE_STYLES = {
@@ -73,6 +84,7 @@ const TOOLBAR_SIZE_STYLES = {
 const APP_LOGO_PATH = "/logo.svg";
 
 export function Toolbar({
+  edition,
   snapshot,
   settings,
   shortcutStatuses,
@@ -95,7 +107,13 @@ export function Toolbar({
   onResetTimer,
   onToggleHidden,
   onToggleClickThrough,
-  onToggleSettings
+  onToggleSettings,
+  onRotateOrientation,
+  onOpenPalette,
+  onQuit,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerUp
 }: ToolbarProps) {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -224,10 +242,10 @@ export function Toolbar({
             <img
               src={APP_LOGO_PATH}
               alt="TradeReality Ink"
-              className={settings.toolbarSize === "compact" ? "h-6 w-6 rounded-md" : "h-7 w-7 rounded-md"}
+              className={settings.toolbarSize === "compact" ? "h-6 w-6 shrink-0 object-contain rounded-md" : "h-7 w-7 shrink-0 object-contain rounded-md"}
             />
-            {snapshot.isDirty ? <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> : null}
-            {settings.toolbarSize === "normal" ? (
+            {edition.id !== "basic" && snapshot.isDirty && settings.toolbarOrientation !== "vertical" ? <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> : null}
+            {settings.toolbarSize === "normal" && settings.toolbarOrientation !== "vertical" ? (
               <span className="text-xs font-semibold tracking-[0.18em] text-[#E5E7EB]">TRInk</span>
             ) : null}
           </button>
@@ -258,25 +276,26 @@ export function Toolbar({
             })}
           </div>
 
-          <div className="relative">
-            <button
-              type="button"
-              className={`${iconButtonBase} ${sizeStyle.button}`}
-              onClick={() =>
-                setOverflowOpen((current) => {
-                  const next = !current;
-                  if (!next) {
-                    setPaletteQuery("");
-                  }
-                  return next;
-                })
-              }
-              title="More tools"
-            >
-              <ChevronDown className={sizeStyle.icon} />
-            </button>
+          {edition.id !== "basic" ? (
+            <div className="relative">
+              <button
+                type="button"
+                className={`${iconButtonBase} ${sizeStyle.button}`}
+                onClick={() =>
+                  setOverflowOpen((current) => {
+                    const next = !current;
+                    if (!next) {
+                      setPaletteQuery("");
+                    }
+                    return next;
+                  })
+                }
+                title="More tools"
+              >
+                <ChevronDown className={sizeStyle.icon} />
+              </button>
 
-            {overflowOpen ? (
+              {overflowOpen ? (
               <div className="absolute left-0 top-[calc(100%+10px)] z-40 w-[25rem] rounded-2xl border border-[rgba(148,163,184,0.22)] bg-[rgba(2,8,23,0.94)] p-3 shadow-[0_24px_60px_rgba(2,8,23,0.5)] backdrop-blur-xl">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#94A3B8]">
@@ -394,7 +413,7 @@ export function Toolbar({
                     <span>Timer</span>
                     <button
                       type="button"
-                      onClick={onToggleTimerVisibility}
+                      onClick={() => onToggleTimerVisibility?.()}
                       className="rounded-lg border border-[rgba(148,163,184,0.18)] px-2 py-1 text-[10px] text-[#E5E7EB]"
                     >
                       {snapshot.timer.visible ? "Hide" : "Show"}
@@ -417,21 +436,21 @@ export function Toolbar({
                   <div className="mb-2 grid grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => onTimerPreset(60_000, "1m")}
+                      onClick={() => onTimerPreset?.(60_000, "1m")}
                       className="rounded-lg border border-[rgba(59,130,246,0.28)] bg-[rgba(59,130,246,0.14)] px-2 py-2 text-[10px] text-[#DBEAFE]"
                     >
                       1m
                     </button>
                     <button
                       type="button"
-                      onClick={() => onTimerPreset(300_000, "5m")}
+                      onClick={() => onTimerPreset?.(300_000, "5m")}
                       className="rounded-lg border border-[rgba(148,163,184,0.18)] px-2 py-2 text-[10px] text-[#E5E7EB]"
                     >
                       5m
                     </button>
                     <button
                       type="button"
-                      onClick={() => onTimerPreset(900_000, "15m")}
+                      onClick={() => onTimerPreset?.(900_000, "15m")}
                       className="rounded-lg border border-[rgba(148,163,184,0.18)] px-2 py-2 text-[10px] text-[#E5E7EB]"
                     >
                       15m
@@ -440,7 +459,7 @@ export function Toolbar({
                   <div className="grid grid-cols-4 gap-2">
                     <button
                       type="button"
-                      onClick={snapshot.timer.status === "paused" ? onResumeTimer : onStartTimer}
+                      onClick={() => (snapshot.timer.status === "paused" ? onResumeTimer?.() : onStartTimer?.())}
                       className="rounded-lg border border-[rgba(59,130,246,0.28)] bg-[rgba(59,130,246,0.14)] px-2 py-2 text-[10px] text-[#DBEAFE]"
                     >
                       {snapshot.timer.status === "paused" ? "Resume" : "Start"}
@@ -538,18 +557,21 @@ export function Toolbar({
               </div>
             ) : null}
           </div>
+        ) : null}
 
-          <div className="ml-auto flex items-center gap-1.5">
-            <div
-              className={`rounded-full border ${sizeStyle.pill} font-semibold uppercase tracking-[0.16em] ${
-                snapshot.overlayMode === "draw"
-                  ? "border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.72)] text-[#94A3B8]"
-                  : "border-[rgba(59,130,246,0.46)] bg-[rgba(59,130,246,0.18)] text-[#DBEAFE]"
-              }`}
-              title={snapshot.overlayMode === "draw" ? "Draw mode" : "Click-through mode"}
-            >
-              {snapshot.overlayMode === "draw" ? "Draw" : "Pass"}
-            </div>
+        <div className="ml-auto flex items-center gap-1.5">
+            {edition.id !== "basic" ? (
+              <div
+                className={`rounded-full border ${sizeStyle.pill} font-semibold uppercase tracking-[0.16em] ${
+                  snapshot.overlayMode === "draw"
+                    ? "border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.72)] text-[#94A3B8]"
+                    : "border-[rgba(59,130,246,0.46)] bg-[rgba(59,130,246,0.18)] text-[#DBEAFE]"
+                }`}
+                title={snapshot.overlayMode === "draw" ? "Draw mode" : "Click-through mode"}
+              >
+                {snapshot.overlayMode === "draw" ? "Draw" : "Pass"}
+              </div>
+            ) : null}
 
             <button
               type="button"
@@ -577,6 +599,16 @@ export function Toolbar({
             >
               {snapshot.hidden ? <Eye className={sizeStyle.icon} /> : <EyeOff className={sizeStyle.icon} />}
             </button>
+            {edition.id !== "basic" ? (
+              <button
+                type="button"
+                onClick={onRotateOrientation}
+                className={`${iconButtonBase} ${sizeStyle.button}`}
+                title={settings.toolbarOrientation === "vertical" ? "Rotate to horizontal" : "Rotate to vertical"}
+              >
+                <RefreshCcw className={sizeStyle.icon} />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onClear}
@@ -585,26 +617,28 @@ export function Toolbar({
             >
               <Trash2 className={sizeStyle.icon} />
             </button>
-            <button
-              type="button"
-              onClick={onToggleClickThrough}
-              className={`${iconButtonBase} ${sizeStyle.button} ${
-                snapshot.overlayMode === "click-through"
-                  ? "border-[#3B82F6] bg-[rgba(59,130,246,0.16)] text-[#DBEAFE]"
-                  : ""
-              }`}
-              title={
-                snapshot.overlayMode === "click-through"
-                  ? "Return to draw mode"
-                  : "Enable click-through"
-              }
-            >
-              {snapshot.overlayMode === "click-through" ? (
-                <PenTool className={sizeStyle.icon} />
-              ) : (
-                <MousePointerClick className={sizeStyle.icon} />
-              )}
-            </button>
+            {edition.id !== "basic" ? (
+              <button
+                type="button"
+                onClick={onToggleClickThrough}
+                className={`${iconButtonBase} ${sizeStyle.button} ${
+                  snapshot.overlayMode === "click-through"
+                    ? "border-[#3B82F6] bg-[rgba(59,130,246,0.16)] text-[#DBEAFE]"
+                    : ""
+                }`}
+                title={
+                  snapshot.overlayMode === "click-through"
+                    ? "Return to draw mode"
+                    : "Enable click-through"
+                }
+              >
+                {snapshot.overlayMode === "click-through" ? (
+                  <PenTool className={sizeStyle.icon} />
+                ) : (
+                  <MousePointerClick className={sizeStyle.icon} />
+                )}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onToggleSettings}
@@ -613,7 +647,17 @@ export function Toolbar({
             >
               <Settings2 className={sizeStyle.icon} />
             </button>
-            {unavailableShortcutCount > 0 ? (
+            {edition.id === "basic" ? (
+              <button
+                type="button"
+                onClick={onQuit}
+                className={`${iconButtonBase} ${sizeStyle.button} hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30`}
+                title="Quit TRInk Basic"
+              >
+                <Power className={sizeStyle.icon} />
+              </button>
+            ) : null}
+            {edition.id !== "basic" && unavailableShortcutCount > 0 ? (
               <div
                 className={`rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(146,64,14,0.22)] ${sizeStyle.pill} text-[#FDE68A]`}
                 title="Some global shortcuts could not be registered."

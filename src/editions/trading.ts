@@ -1,0 +1,50 @@
+import type { AppEdition } from "./edition";
+
+export const tradingEdition: AppEdition = {
+  id: "trading",
+  name: "TRInk Trading",
+  productName: "TradeReality Ink",
+  shortName: "TRInk",
+  toolbarLabel: "TRInk",
+  windowTitle: "TRInk Trading",
+  description: "The full TradeReality edition with chart, price-action, session, and advanced overlay tools.",
+  aboutSummary: "Local-only advanced trading annotation overlay. No broker integration, no automation, no trading signals, no cloud sync, no Expiry UI.",
+  availableModes: ["basic", "trading", "binary"],
+  visibleToolIds: [
+    "select",
+    "pen",
+    "highlighter",
+    "line",
+    "arrow",
+    "rectangle",
+    "text",
+    "eraser",
+    "horizontal_line",
+    "vertical_marker",
+    "ray",
+    "trend",
+    "channel",
+    "support_resistance_zone",
+    "fibonacci_retracement",
+    "fibonacci_fan",
+    "andrews_pitchfork",
+    "qm_bullish",
+    "qm_bearish",
+    "bos",
+    "choch",
+    "fvg",
+    "liquidity_sweep",
+    "call_marker",
+    "put_marker"
+  ],
+  defaultTool: "select",
+  defaultFavoriteTools: ["select", "pen", "arrow", "rectangle", "trend", "channel", "horizontal_line", "fvg"],
+  features: {
+    timer: true,
+    quickSessionActions: true,
+    annotationExport: true,
+    toolModeSwitcher: true,
+    patternLabels: true,
+    updateChecks: true
+  }
+};

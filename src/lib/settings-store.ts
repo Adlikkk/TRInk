@@ -1,12 +1,9 @@
 import { DEFAULT_SETTINGS, type AppSettings } from "../types/settings";
 import type { ToolbarPosition } from "../types/settings";
-import { normalizeShortcutBindings } from "./shortcuts";
+import { getCurrentEdition, getEdition, normalizeEditionFavoriteTools, normalizeEditionRecentTools, normalizeEditionTool, normalizeEditionToolMode, type AppEditionId } from "../editions/edition";
+import { getShortcutDefinition, isShortcutCategoryEnabled, normalizeShortcutBindings } from "./shortcuts";
 import {
-  DEFAULT_FAVORITE_TOOLS,
-  canFavoriteTool,
   isToolKind,
-  isUserFacingTool,
-  normalizeFavoriteTools,
   registerRecentTool,
   TOOL_DEFINITIONS
 } from "./tool-definitions";
@@ -14,9 +11,9 @@ import {
   TIMER_MARGIN,
   TIMER_SIZE_COMPACT,
   TIMER_SIZE_NORMAL,
-  TOOLBAR_MARGIN,
   TOOLBAR_WINDOW_COMPACT_SIZE
 } from "./ui-constants";
+import { clampWindowPositionToDesktop } from "./window-layout";
 
 const SETTINGS_KEY = "trink.settings.v0.1";
 
@@ -50,19 +47,17 @@ export function clampToolbarPosition(
   },
   toolbarSize = TOOLBAR_WINDOW_COMPACT_SIZE
 ): ToolbarPosition {
-  const originX = viewport.x ?? 0;
-  const originY = viewport.y ?? 0;
-  const width = toolbarSize.width;
-  const height = toolbarSize.height;
-  const minX = originX + TOOLBAR_MARGIN;
-  const minY = originY + TOOLBAR_MARGIN;
-  const maxX = Math.max(minX, originX + viewport.width - width - TOOLBAR_MARGIN);
-  const maxY = Math.max(minY, originY + viewport.height - height - TOOLBAR_MARGIN);
-
-  return {
-    x: clampNumber(position?.x, minX, maxX, DEFAULT_SETTINGS.toolbarPosition.x),
-    y: clampNumber(position?.y, minY, maxY, DEFAULT_SETTINGS.toolbarPosition.y)
-  };
+  return clampWindowPositionToDesktop(
+    position,
+    {
+      x: viewport.x ?? 0,
+      y: viewport.y ?? 0,
+      width: viewport.width,
+      height: viewport.height
+    },
+    toolbarSize,
+    DEFAULT_SETTINGS.toolbarPosition
+  );
 }
 
 export function clampTimerPosition(
@@ -85,17 +80,24 @@ export function clampTimerPosition(
 }
 
 export function normalizeSettings(input: unknown): AppSettings {
+  const edition = getCurrentEdition();
+  return normalizeSettingsForEdition(input, edition.id);
+}
+
+export function normalizeSettingsForEdition(input: unknown, editionId: AppEditionId): AppSettings {
+  const edition = getEdition(editionId);
+  const isBasicEdition = edition.id === "basic";
   const parsed = input && typeof input === "object" ? (input as Partial<AppSettings>) : {};
   const favoriteTools = Array.isArray(parsed.favoriteTools)
-    ? normalizeFavoriteTools(parsed.favoriteTools)
+    ? normalizeEditionFavoriteTools(parsed.favoriteTools, edition)
     : [];
   const recentTools = Array.isArray(parsed.recentTools)
-    ? parsed.recentTools.filter(isToolKind).filter(isUserFacingTool).slice(0, 5)
+    ? normalizeEditionRecentTools(parsed.recentTools.filter(isToolKind), edition)
     : [];
-  const modeOptions = new Set(["basic", "trading", "binary"] as const);
   const overlayModeOptions = new Set(["draw", "click-through"] as const);
   const toolbarSizeOptions = new Set(["compact", "normal"] as const);
   const timerSizeOptions = new Set(["compact", "normal"] as const);
+  const toolbarOrientationOptions = new Set(["horizontal", "vertical"] as const);
   const timerPresetOptions = new Set(["1m", "5m", "15m", "custom"] as const);
   const drawingTarget =
     typeof parsed.drawingTargetMonitor === "string" &&
@@ -107,7 +109,17 @@ export function normalizeSettings(input: unknown): AppSettings {
       ? (parsed.timerSize as AppSettings["timerSize"])
       : DEFAULT_SETTINGS.timerSize;
   const timerDurationMs = clampNumber(parsed.timerDurationMs, 1_000, 86_400_000, DEFAULT_SETTINGS.timerDurationMs);
-  const shortcuts = normalizeShortcutBindings(parsed.shortcuts);
+  const shortcuts = normalizeShortcutBindings(parsed.shortcuts).map((binding) => {
+    const definition = getShortcutDefinition(binding.action);
+    if (!definition) return binding;
+    if (!isShortcutCategoryEnabled(definition.category, edition)) {
+      return { ...binding, accelerator: null, enabled: false };
+    }
+    if (definition.tool && !edition.visibleToolIds.includes(definition.tool)) {
+      return { ...binding, accelerator: null, enabled: false };
+    }
+    return binding;
+  });
 
   return {
     settingsVersion: DEFAULT_SETTINGS.settingsVersion,
@@ -117,37 +129,48 @@ export function normalizeSettings(input: unknown): AppSettings {
         : DEFAULT_SETTINGS.defaultColor,
     strokeWidth: clampNumber(parsed.strokeWidth, 1, 12, DEFAULT_SETTINGS.strokeWidth),
     opacity: clampNumber(parsed.opacity, 0.1, 1, DEFAULT_SETTINGS.opacity),
-    defaultMode: overlayModeOptions.has(parsed.defaultMode as AppSettings["defaultMode"])
-      ? (parsed.defaultMode as AppSettings["defaultMode"])
-      : DEFAULT_SETTINGS.defaultMode,
+    defaultMode: isBasicEdition
+      ? "click-through"
+      : overlayModeOptions.has(parsed.defaultMode as AppSettings["defaultMode"])
+        ? (parsed.defaultMode as AppSettings["defaultMode"])
+        : DEFAULT_SETTINGS.defaultMode,
     toolbarOpacity: clampNumber(parsed.toolbarOpacity, 0.35, 1, DEFAULT_SETTINGS.toolbarOpacity),
     toolbarSize: toolbarSizeOptions.has(parsed.toolbarSize as AppSettings["toolbarSize"])
       ? (parsed.toolbarSize as AppSettings["toolbarSize"])
       : DEFAULT_SETTINGS.toolbarSize,
+    toolbarOrientation: toolbarOrientationOptions.has(parsed.toolbarOrientation as AppSettings["toolbarOrientation"])
+      ? (parsed.toolbarOrientation as AppSettings["toolbarOrientation"])
+      : DEFAULT_SETTINGS.toolbarOrientation,
     favoriteTools:
       favoriteTools.length > 0
         ? favoriteTools
-        : normalizeFavoriteTools(DEFAULT_FAVORITE_TOOLS),
-    defaultTool:
-      isToolKind(parsed.defaultTool) && TOOL_DEFINITIONS.some((tool) => tool.id === parsed.defaultTool)
-        ? parsed.defaultTool
-        : DEFAULT_SETTINGS.defaultTool,
-    toolMode: modeOptions.has(parsed.toolMode as AppSettings["toolMode"])
-      ? (parsed.toolMode as AppSettings["toolMode"])
-      : DEFAULT_SETTINGS.toolMode,
+        : edition.defaultFavoriteTools,
+    defaultTool: isBasicEdition
+      ? edition.defaultTool
+      : isToolKind(parsed.defaultTool) && TOOL_DEFINITIONS.some((tool) => tool.id === parsed.defaultTool)
+        ? normalizeEditionTool(parsed.defaultTool, edition)
+        : edition.defaultTool,
+    toolMode: normalizeEditionToolMode(
+      typeof parsed.toolMode === "string" ? (parsed.toolMode as AppSettings["toolMode"]) : DEFAULT_SETTINGS.toolMode,
+      edition
+    ),
     startMinimized: Boolean(parsed.startMinimized),
     alwaysOnTop: typeof parsed.alwaysOnTop === "boolean" ? parsed.alwaysOnTop : DEFAULT_SETTINGS.alwaysOnTop,
     toolbarPosition: clampToolbarPosition(parsed.toolbarPosition),
     drawingTargetMonitor: drawingTarget,
-    showCursorHints:
-      typeof parsed.showCursorHints === "boolean"
+    showCursorHints: isBasicEdition
+      ? false
+      : typeof parsed.showCursorHints === "boolean"
         ? parsed.showCursorHints
         : DEFAULT_SETTINGS.showCursorHints,
     showPatternLabels:
-      typeof parsed.showPatternLabels === "boolean"
+      edition.features.patternLabels && typeof parsed.showPatternLabels === "boolean"
         ? parsed.showPatternLabels
         : DEFAULT_SETTINGS.showPatternLabels,
-    timerVisible: typeof parsed.timerVisible === "boolean" ? parsed.timerVisible : DEFAULT_SETTINGS.timerVisible,
+    timerVisible:
+      edition.features.timer && typeof parsed.timerVisible === "boolean"
+        ? parsed.timerVisible
+        : false,
     timerPosition: clampTimerPosition(
       parsed.timerPosition,
       undefined,
@@ -162,20 +185,36 @@ export function normalizeSettings(input: unknown): AppSettings {
     recentTools,
     shortcuts,
     welcomeDismissed:
-      typeof parsed.welcomeDismissed === "boolean"
-        ? parsed.welcomeDismissed
-        : DEFAULT_SETTINGS.welcomeDismissed
+      typeof parsed.settingsVersion === "number" && parsed.settingsVersion < 8
+        ? true
+        : typeof parsed.welcomeDismissed === "boolean"
+          ? parsed.welcomeDismissed
+          : DEFAULT_SETTINGS.welcomeDismissed,
+    overlayDebugBounds:
+      typeof parsed.overlayDebugBounds === "boolean"
+        ? parsed.overlayDebugBounds
+        : DEFAULT_SETTINGS.overlayDebugBounds,
+    returnToSelectAfterDraw:
+      typeof parsed.returnToSelectAfterDraw === "boolean"
+        ? parsed.returnToSelectAfterDraw
+        : DEFAULT_SETTINGS.returnToSelectAfterDraw,
+    checkForUpdates:
+      edition.features.updateChecks && typeof parsed.checkForUpdates === "boolean"
+        ? parsed.checkForUpdates
+        : DEFAULT_SETTINGS.checkForUpdates
   };
 }
 
 export function addRecentTool(settings: AppSettings, tool: AppSettings["defaultTool"]) {
+  const edition = getCurrentEdition();
   return {
     ...settings,
-    recentTools: registerRecentTool(settings.recentTools, tool)
+    recentTools: normalizeEditionRecentTools(registerRecentTool(settings.recentTools, tool), edition)
   };
 }
 
 export function loadSettings(): AppSettings {
+  const edition = getCurrentEdition();
   if (typeof window === "undefined") {
     return DEFAULT_SETTINGS;
   }
@@ -193,7 +232,7 @@ export function loadSettings(): AppSettings {
   }
 
   try {
-    return normalizeSettings(JSON.parse(raw));
+    return normalizeSettingsForEdition(JSON.parse(raw), edition.id);
   } catch {
     try {
       window.localStorage.removeItem(SETTINGS_KEY);
@@ -205,12 +244,13 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(settings: AppSettings) {
+  const edition = getCurrentEdition();
   if (typeof window === "undefined") {
     return;
   }
 
   try {
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(settings)));
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettingsForEdition(settings, edition.id)));
   } catch {
     // Ignore local persistence failures to keep the overlay usable.
   }

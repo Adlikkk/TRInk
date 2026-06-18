@@ -6,9 +6,11 @@ import type { OverlayInteractionMode } from "../types/settings";
 import type { AppSettings } from "../types/settings";
 import type {
   OverlayCommand,
+  PaletteCommand,
   SessionNotice,
   ToolbarCommand,
-  ToolbarSnapshot
+  ToolbarSnapshot,
+  UiWindowBoundsPayload
 } from "./window-protocol";
 
 export async function setClickThrough(enabled: boolean) {
@@ -27,10 +29,13 @@ export async function applyInitialOverlayMode(mode: OverlayInteractionMode) {
   await setClickThrough(mode === "click-through");
 }
 
-export function getWindowMode() {
+export function getWindowMode(): "overlay" | "toolbar" | "palette" | "settings" {
   const query = new URLSearchParams(window.location.search);
   const requested = query.get("window");
-  return requested === "toolbar" ? "toolbar" : "overlay";
+  if (requested === "toolbar") return "toolbar";
+  if (requested === "palette") return "palette";
+  if (requested === "settings") return "settings";
+  return "overlay";
 }
 
 export async function listenOverlayCommands(handler: (event: OverlayCommand) => void) {
@@ -46,7 +51,11 @@ export async function listenToolbarCommands(handler: (event: ToolbarCommand) => 
 }
 
 export async function publishToolbarSnapshot(snapshot: ToolbarSnapshot) {
-  await emitTo("toolbar", "trink://toolbar-snapshot", snapshot);
+  await Promise.all([
+    emitTo("toolbar", "trink://toolbar-snapshot", snapshot).catch(() => undefined),
+    emitTo("settings", "trink://toolbar-snapshot", snapshot).catch(() => undefined),
+    emitTo("palette", "trink://toolbar-snapshot", snapshot).catch(() => undefined),
+  ]);
 }
 
 export async function listenToolbarSnapshot(handler: (snapshot: ToolbarSnapshot) => void) {
@@ -70,13 +79,17 @@ export async function listenSessionNotice(handler: (notice: SessionNotice) => vo
 }
 
 export type SettingsSyncPayload = {
-  source: "overlay" | "toolbar";
+  source: "overlay" | "toolbar" | "palette" | "settings";
   settings: AppSettings;
 };
 
 export async function publishSettingsSync(payload: SettingsSyncPayload) {
-  const target = payload.source === "overlay" ? "toolbar" : "overlay";
-  await emitTo(target, "trink://settings-sync", payload);
+  const all = ["overlay", "toolbar", "palette", "settings"];
+  await Promise.all(
+    all
+      .filter((t) => t !== payload.source)
+      .map((target) => emitTo(target, "trink://settings-sync", payload).catch(() => undefined))
+  );
 }
 
 export async function listenSettingsSync(handler: (payload: SettingsSyncPayload) => void) {
@@ -87,6 +100,52 @@ export async function listenSettingsSync(handler: (payload: SettingsSyncPayload)
 
 export async function listenOverlayVisibility(handler: (visible: boolean) => void): Promise<UnlistenFn> {
   return listen<boolean>("trink://overlay-visibility", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function sendPaletteCommand(command: PaletteCommand) {
+  await emitTo("toolbar", "trink://palette-command", command);
+}
+
+export async function listenPaletteCommands(handler: (event: PaletteCommand) => void) {
+  return getCurrentWindow().listen<PaletteCommand>("trink://palette-command", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function togglePaletteWindow(x: number, y: number) {
+  await invoke("toggle_palette_window", { x, y });
+}
+
+export async function closePaletteWindow() {
+  await invoke("close_palette_window");
+}
+
+export async function toggleSettingsWindow(x: number, y: number) {
+  await invoke("toggle_settings_window", { x, y });
+}
+
+export async function closeSettingsWindow() {
+  await invoke("close_settings_window");
+}
+
+export async function bringToolbarToFront() {
+  await invoke("bring_toolbar_to_front");
+}
+
+export async function publishUiWindowBounds(payload: UiWindowBoundsPayload) {
+  await emitTo("overlay", "trink://ui-window-bounds", payload).catch(() => undefined);
+}
+
+export async function listenUiWindowBounds(handler: (payload: UiWindowBoundsPayload) => void) {
+  return getCurrentWindow().listen<UiWindowBoundsPayload>("trink://ui-window-bounds", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function listenTrayEvent(handler: (eventName: string) => void) {
+  return listen<string>("tray-event", (event) => {
     handler(event.payload);
   });
 }

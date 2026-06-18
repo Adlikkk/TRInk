@@ -629,6 +629,12 @@ export function renderDrawable(ctx: CanvasRenderingContext2D, drawable: Drawable
     case "freehand":
       drawPolyline(ctx, safeDrawable.points);
       break;
+    case "line":
+      ctx.beginPath();
+      ctx.moveTo(safeDrawable.start.x, safeDrawable.start.y);
+      ctx.lineTo(safeDrawable.end.x, safeDrawable.end.y);
+      ctx.stroke();
+      break;
     case "arrow":
       ctx.beginPath();
       ctx.moveTo(safeDrawable.start.x, safeDrawable.start.y);

@@ -44,6 +44,7 @@ export function isPointNearDrawable(point: Point, drawable: Drawable, tolerance 
 
         return pointToSegmentDistance(point, points[index - 1], segmentPoint) <= tolerance;
       });
+    case "line":
     case "arrow":
       return pointToSegmentDistance(point, safeDrawable.start, safeDrawable.end) <= tolerance;
     case "rectangle":

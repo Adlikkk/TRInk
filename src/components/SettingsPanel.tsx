@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { X } from "lucide-react";
+import type { AppEdition } from "../editions/edition";
+import {
+  getEditionCategoryLabel,
+  getEditionCategoryOrder,
+  getEditionToolsByCategory,
+  normalizeEditionFavoriteTools
+} from "../editions/edition";
+import { getEditionSettingsTabs, type EditionSettingsTabId } from "../editions/ui";
 import {
   DEFAULT_FIBONACCI_FAN_LEVELS,
   DEFAULT_FIBONACCI_RETRACEMENT_LEVELS,
@@ -14,28 +22,23 @@ import {
   formatAcceleratorForDisplay,
   getDuplicateShortcutAction,
   getShortcutBindingsByCategory,
+  getShortcutCategoryOrderForEdition,
   getShortcutDefinition,
   getShortcutStatusMap,
   normalizeShortcutBindings,
   SHORTCUT_CATEGORY_LABELS,
-  SHORTCUT_CATEGORY_ORDER,
   type ShortcutAction,
   type ShortcutRegistrationStatus
 } from "../lib/shortcuts";
 import {
   canFavoriteTool,
-  DEFAULT_FAVORITE_TOOLS,
-  getToolsByCategory,
-  normalizeFavoriteTools,
-  TOOL_CATEGORY_ORDER,
-  TOOL_CATEGORY_LABELS,
   TOOL_DEFINITIONS
 } from "../lib/tool-definitions";
 import { formatTimerClock } from "../lib/timer";
 import type { ToolbarSnapshot, SessionNotice } from "../lib/window-protocol";
 import { DEFAULT_SETTINGS } from "../types/settings";
 import type { AppSettings } from "../types/settings";
-import { APP_BUILD_CHANNEL, APP_DISTRIBUTION, APP_PRODUCT_NAME, APP_PUBLISHER, APP_SHORT_NAME } from "../lib/app-meta";
+import { APP_BUILD_CHANNEL, APP_DISTRIBUTION, APP_EDITION_LABEL, APP_PUBLISHER } from "../lib/app-meta";
 
 type SettingsPanelProps = {
   open: boolean;
@@ -46,6 +49,7 @@ type SettingsPanelProps = {
   snapshot: ToolbarSnapshot;
   sessionNotice: SessionNotice | null;
   appVersion: string;
+  edition: AppEdition;
   focusSection: "keybinds" | "about" | null;
   onFocusSectionHandled: () => void;
   onSaveSession: () => void;
@@ -78,6 +82,7 @@ export function SettingsPanel({
   snapshot,
   sessionNotice,
   appVersion,
+  edition,
   focusSection,
   onFocusSectionHandled,
   onSaveSession,
@@ -104,15 +109,17 @@ export function SettingsPanel({
   const [shortcutNotice, setShortcutNotice] = useState<string | null>(null);
   const [levelDraft, setLevelDraft] = useState("");
   const [levelNotice, setLevelNotice] = useState<string | null>(null);
-  const keybindsRef = useRef<HTMLDivElement | null>(null);
-  const aboutRef = useRef<HTMLDivElement | null>(null);
+  const [activeTab, setActiveTab] = useState<EditionSettingsTabId>("general");
 
   const customMinutes = Math.floor(settings.timerDurationMs / 60_000);
   const customSeconds = Math.floor((settings.timerDurationMs % 60_000) / 1_000);
-  const favoritePreview = normalizeFavoriteTools(settings.favoriteTools);
+  const favoritePreview = normalizeEditionFavoriteTools(settings.favoriteTools, edition);
   const selectedLocked = snapshot.selectedObject?.locked === true;
   const selectedObject = snapshot.selectedObject;
   const shortcutStatusMap = useMemo(() => getShortcutStatusMap(shortcutStatuses), [shortcutStatuses]);
+  const shortcutCategories = useMemo(() => getShortcutCategoryOrderForEdition(edition), [edition]);
+  const toolCategories = useMemo(() => getEditionCategoryOrder(edition), [edition]);
+  const visibleTabs = useMemo(() => getEditionSettingsTabs(edition), [edition]);
   const recentTools = settings.recentTools
     .map((toolId) => TOOL_DEFINITIONS.find((tool) => tool.id === toolId))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
@@ -270,24 +277,57 @@ export function SettingsPanel({
     if (!open || !focusSection) {
       return;
     }
-
-    const target = focusSection === "keybinds" ? keybindsRef.current : aboutRef.current;
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (focusSection === "keybinds") {
+      setActiveTab("keybinds");
+    } else if (focusSection === "about") {
+      setActiveTab("about");
+    }
     onFocusSectionHandled();
   }, [focusSection, onFocusSectionHandled, open]);
+
+  useEffect(() => {
+    if (activeTab === "timer" && !edition.features.timer) {
+      setActiveTab("general");
+    }
+  }, [activeTab, edition.features.timer]);
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="rounded-[24px] border border-[rgba(148,163,184,0.22)] bg-[rgba(2,8,23,0.94)] p-5 shadow-[0_26px_60px_rgba(2,8,23,0.52)] backdrop-blur-xl">
+    <div className="max-h-[min(720px,calc(100vh-24px))] overflow-y-auto rounded-[24px] border border-[rgba(148,163,184,0.22)] bg-[rgba(2,8,23,0.94)] p-5 shadow-[0_26px_60px_rgba(2,8,23,0.52)] backdrop-blur-xl">
+      {!settings.welcomeDismissed && edition.id !== "basic" ? (
+        <div className="mb-4 rounded-2xl border border-[rgba(59,130,246,0.28)] bg-[rgba(15,23,42,0.82)] px-4 py-3">
+          <div className="flex items-center gap-3">
+            <img src="/logo-bg.svg" alt={edition.productName} className="h-8 w-8 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-[#DBEAFE]">{edition.productName}</div>
+              <div className="text-[11px] text-[#94A3B8]">
+                Local overlay - no broker, no login, no automation.
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 text-[11px] leading-[1.5] text-[#CBD5E1]">
+            Starts in click-through mode. Pick a drawing tool when ready. Press Esc or switch tools to cancel a partial drawing. Close this settings panel to start using TRInk.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSettings((current) => ({ ...current, welcomeDismissed: true }))}
+              className="rounded-xl border border-[rgba(59,130,246,0.28)] bg-[rgba(59,130,246,0.14)] px-3 py-2 text-[11px] font-medium text-[#DBEAFE]"
+            >
+              Got it, don&apos;t show again
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <img src="/logo.svg" alt="TradeReality Ink" className="mt-0.5 h-10 w-10 rounded-xl" />
+          <img src="/logo-bg.svg" alt={edition.productName} className="mt-0.5 h-12 w-12 rounded-xl" />
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#94A3B8]">
-              TradeReality Ink
+              {edition.windowTitle}
             </div>
             <div className="mt-1 text-sm font-semibold text-[#E5E7EB]">
               Compact overlay controls
@@ -307,6 +347,61 @@ export function SettingsPanel({
         </button>
       </div>
 
+      <div className="mb-4 flex gap-1 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-1">
+        {visibleTabs.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 rounded-xl px-2 py-1.5 text-[11px] font-medium capitalize transition ${
+              activeTab === tab
+                ? "bg-[rgba(59,130,246,0.18)] text-[#DBEAFE]"
+                : "text-[#94A3B8] hover:text-[#CBD5E1]"
+            }`}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "general" && edition.id === "basic" && <>
+      <div className="grid grid-cols-1 gap-4 text-sm">
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Drawing target monitor</span>
+          <select
+            value={settings.drawingTargetMonitor}
+            onChange={(event) =>
+              setSettings((current) => ({
+                ...current,
+                drawingTargetMonitor: event.target.value as AppSettings["drawingTargetMonitor"]
+              }))
+            }
+            className="w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.8)] px-3 py-2 text-[#E5E7EB]"
+          >
+            {monitorOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3 text-sm text-[#E5E7EB]">
+        <label className="flex items-center gap-2 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-3 py-2">
+          <input
+            type="checkbox"
+            checked={settings.returnToSelectAfterDraw}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, returnToSelectAfterDraw: event.target.checked }))
+            }
+          />
+          <span>Return to Select after draw</span>
+        </label>
+      </div>
+      </>}
+
+      {activeTab === "general" && edition.id !== "basic" && <>
       <div className="grid grid-cols-2 gap-4 text-sm">
         <label className="block">
           <span className="mb-2 block text-[#94A3B8]">Toolbar size</span>
@@ -372,9 +467,9 @@ export function SettingsPanel({
             }
             className="w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.8)] px-3 py-2 text-[#E5E7EB]"
           >
-            {TOOL_CATEGORY_ORDER.map((category) => (
-              <optgroup key={category} label={TOOL_CATEGORY_LABELS[category]}>
-                {getToolsByCategory(category).map((tool) => (
+            {toolCategories.map((category) => (
+              <optgroup key={category} label={getEditionCategoryLabel(category)}>
+                {getEditionToolsByCategory(edition, category).map((tool) => (
                   <option key={tool.id} value={tool.id}>
                     {tool.label}
                   </option>
@@ -452,19 +547,149 @@ export function SettingsPanel({
           />
           <span>Show cursor hints</span>
         </label>
+        {edition.features.patternLabels ? (
+          <label className="flex items-center gap-2 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-3 py-2">
+            <input
+              type="checkbox"
+              checked={settings.showPatternLabels}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, showPatternLabels: event.target.checked }))
+              }
+            />
+            <span>Show pattern labels</span>
+          </label>
+        ) : null}
         <label className="flex items-center gap-2 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-3 py-2">
           <input
             type="checkbox"
-            checked={settings.showPatternLabels}
+            checked={settings.returnToSelectAfterDraw}
             onChange={(event) =>
-              setSettings((current) => ({ ...current, showPatternLabels: event.target.checked }))
+              setSettings((current) => ({ ...current, returnToSelectAfterDraw: event.target.checked }))
             }
           />
-          <span>Show pattern labels</span>
+          <span>Return to Select after draw</span>
+        </label>
+        <label className="flex items-center gap-2 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-3 py-2">
+          <input
+            type="checkbox"
+            checked={settings.overlayDebugBounds}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, overlayDebugBounds: event.target.checked }))
+            }
+          />
+          <span>Debug overlay bounds</span>
+        </label>
+      </div>
+      </>}
+
+      {activeTab === "tools" && edition.id === "basic" && <>
+      <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-4">
+        <div className="mb-3 text-sm font-medium text-[#E5E7EB]">Included tools</div>
+        <div className="grid grid-cols-2 gap-2">
+          {toolCategories.map((category) =>
+            getEditionToolsByCategory(edition, category).map((tool) => (
+              <div
+                key={tool.id}
+                className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2 text-xs text-[#CBD5E1]"
+              >
+                {tool.label}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      </>}
+
+      {activeTab === "appearance" && edition.id === "basic" && <>
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Toolbar size</span>
+          <select
+            value={settings.toolbarSize}
+            onChange={(event) =>
+              setSettings((current) => ({
+                ...current,
+                toolbarSize: event.target.value as AppSettings["toolbarSize"]
+              }))
+            }
+            className="w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.8)] px-3 py-2 text-[#E5E7EB]"
+          >
+            <option value="compact">Compact</option>
+            <option value="normal">Normal</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Toolbar opacity</span>
+          <input
+            type="range"
+            min={0.35}
+            max={1}
+            step={0.05}
+            value={settings.toolbarOpacity}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, toolbarOpacity: Number(event.target.value) }))
+            }
+            className="w-full"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Default color</span>
+          <input
+            type="color"
+            value={settings.defaultColor}
+            onChange={(event) => setSettings((current) => ({ ...current, defaultColor: event.target.value }))}
+            className="h-11 w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.8)] p-1"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Stroke width</span>
+          <input
+            type="range"
+            min={1}
+            max={12}
+            value={settings.strokeWidth}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, strokeWidth: Number(event.target.value) }))
+            }
+            className="w-full"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-[#94A3B8]">Drawing opacity</span>
+          <input
+            type="range"
+            min={0.1}
+            max={1}
+            step={0.05}
+            value={settings.opacity}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, opacity: Number(event.target.value) }))
+            }
+            className="w-full"
+          />
         </label>
       </div>
 
-      <div className="mt-5" ref={keybindsRef}>
+      <div className="mt-5 grid grid-cols-2 gap-3 text-sm text-[#E5E7EB]">
+        <label className="flex items-center gap-2 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-3 py-2">
+          <input
+            type="checkbox"
+            checked={settings.overlayDebugBounds}
+            onChange={(event) =>
+              setSettings((current) => ({ ...current, overlayDebugBounds: event.target.checked }))
+            }
+          />
+          <span>Debug overlay bounds</span>
+        </label>
+      </div>
+      </>}
+
+      {activeTab === "keybinds" && <>
+      <div className="mt-0">
         <div className="mb-2 flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-[#E5E7EB]">Keybinds</div>
@@ -490,7 +715,7 @@ export function SettingsPanel({
           </div>
         ) : null}
         <div className="space-y-3">
-          {SHORTCUT_CATEGORY_ORDER.map((category) => (
+          {shortcutCategories.map((category) => (
             <div
               key={category}
               className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-3"
@@ -499,7 +724,7 @@ export function SettingsPanel({
                 {SHORTCUT_CATEGORY_LABELS[category]}
               </div>
               <div className="space-y-2">
-                {getShortcutBindingsByCategory(settings.shortcuts, category).map((binding) => {
+                {getShortcutBindingsByCategory(settings.shortcuts, category, edition).map((binding) => {
                   const status = shortcutStatusMap.get(binding.action);
                   const isRecording = recordingAction === binding.action;
                   return (
@@ -582,8 +807,10 @@ export function SettingsPanel({
           ))}
         </div>
       </div>
+      </>}
 
-      <div className="mt-5">
+      {activeTab === "timer" && edition.features.timer && <>
+      <div className="mt-0">
         <div className="mb-2 text-sm font-medium text-[#E5E7EB]">Timer</div>
         <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -730,8 +957,10 @@ export function SettingsPanel({
           </div>
         </div>
       </div>
+      </>}
 
-      <div className="mt-5">
+      {activeTab === "session" && (edition.features.quickSessionActions || edition.features.annotationExport) && <>
+      <div className="mt-0">
         <div className="mb-2 flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-[#E5E7EB]">Session</div>
@@ -1309,7 +1538,7 @@ export function SettingsPanel({
             <div className="text-xs text-[#94A3B8]">Favorites preview ({favoritePreview.length}/8)</div>
             <button
               type="button"
-              onClick={() => setSettings((current) => ({ ...current, favoriteTools: normalizeFavoriteTools(DEFAULT_FAVORITE_TOOLS) }))}
+              onClick={() => setSettings((current) => ({ ...current, favoriteTools: edition.defaultFavoriteTools }))}
               className="rounded-lg border border-[rgba(148,163,184,0.18)] px-2 py-1 text-[11px] text-[#CBD5E1]"
             >
               Reset favorites
@@ -1330,16 +1559,16 @@ export function SettingsPanel({
           </div>
         </div>
         <div className="space-y-3">
-          {TOOL_CATEGORY_ORDER.map((category) => (
+          {toolCategories.map((category) => (
             <div
               key={category}
               className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-3"
             >
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">
-                {TOOL_CATEGORY_LABELS[category]}
+                {getEditionCategoryLabel(category)}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {getToolsByCategory(category)
+                {getEditionToolsByCategory(edition, category)
                   .filter((tool) => canFavoriteTool(tool.id))
                   .map((tool) => {
                     const active = favoritePreview.includes(tool.id);
@@ -1354,7 +1583,7 @@ export function SettingsPanel({
                             const exists = current.favoriteTools.includes(tool.id);
                             const nextFavorites = exists
                               ? current.favoriteTools.filter((entry) => entry !== tool.id)
-                              : normalizeFavoriteTools([...current.favoriteTools, tool.id]);
+                              : normalizeEditionFavoriteTools([...current.favoriteTools, tool.id], edition);
                             return { ...current, favoriteTools: nextFavorites };
                           })
                         }
@@ -1392,50 +1621,81 @@ export function SettingsPanel({
           </div>
         ) : null}
       </div>
+      </>}
 
+      {activeTab === "about" && <>
       <div
-        ref={aboutRef}
-        className="mt-5 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-4"
+        className="mt-0 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] p-4"
       >
         <div className="mb-3 text-sm font-medium text-[#E5E7EB]">About</div>
         <div className="flex items-start gap-3">
-          <img src="/logo.svg" alt="TradeReality Ink" className="h-10 w-10 rounded-xl" />
+          <img src="/logo-bg.svg" alt={edition.productName} className="h-10 w-10 rounded-xl" />
           <div className="min-w-0 flex-1 space-y-1 text-xs text-[#CBD5E1]">
-            <div className="font-semibold text-[#E5E7EB]">{APP_PRODUCT_NAME}</div>
-            <div>Short name: {APP_SHORT_NAME}</div>
+            <div className="font-semibold text-[#E5E7EB]">{edition.productName}</div>
+            <div>Edition: {APP_EDITION_LABEL}</div>
             <div>Version: {appVersion}</div>
-            <div>Build channel: {APP_BUILD_CHANNEL}</div>
             <div>Publisher: {APP_PUBLISHER}</div>
-            <div>Distribution: {APP_DISTRIBUTION}</div>
+            {edition.id === "trading" ? <div>Build channel: {APP_BUILD_CHANNEL}</div> : null}
+            {edition.id === "trading" ? <div>Distribution: {APP_DISTRIBUTION}</div> : null}
           </div>
         </div>
         <div className="mt-3 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-3 text-xs text-[#94A3B8]">
-          Local-only overlay. No broker integration, no trading automation, no trading signals, no telemetry by default, no cloud sync, no Expiry UI.
+          {edition.aboutSummary}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-[#CBD5E1]">
-          <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
-            Release docs: README, COMPATIBILITY, PRIVACY, EULA, plus beta handoff docs when packaged.
+        {edition.id === "basic" ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-[#CBD5E1]">
+            <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
+              Local only. No telemetry by default. No account required.
+            </div>
+            <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
+              Toolbar stays clickable while the overlay switches between Pass and Draw.
+            </div>
           </div>
-          <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
-            Sessions and exports stay on the local machine only.
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-[#CBD5E1]">
+            <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
+              Release docs: README, COMPATIBILITY, PRIVACY, EULA, plus beta handoff docs when packaged.
+            </div>
+            <div className="rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2">
+              Sessions and exports stay on the local machine only.
+            </div>
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setSettings((current) => ({ ...current, welcomeDismissed: false }))}
-            className="rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.72)] px-3 py-2 text-[11px] text-[#E5E7EB]"
-          >
-            Show welcome next launch
-          </button>
-        </div>
+        )}
+        {edition.features.updateChecks ? (
+          <div className="mt-3 rounded-xl border border-[rgba(148,163,184,0.16)] bg-[rgba(2,8,23,0.52)] px-3 py-2 text-[11px] text-[#64748B]">
+            Updates: {settings.checkForUpdates ? "Check enabled (not configured for this beta)" : "Manual - check release notes for new versions."}
+            <label className="ml-3 inline-flex items-center gap-1.5 text-[#94A3B8]">
+              <input
+                type="checkbox"
+                checked={settings.checkForUpdates}
+                onChange={(event) => setSettings((current) => ({ ...current, checkForUpdates: event.target.checked }))}
+              />
+              <span>Enable check</span>
+            </label>
+          </div>
+        ) : null}
+        {edition.id !== "basic" ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSettings((current) => ({ ...current, welcomeDismissed: false }))}
+              className="rounded-xl border border-[rgba(148,163,184,0.18)] bg-[rgba(15,23,42,0.72)] px-3 py-2 text-[11px] text-[#E5E7EB]"
+            >
+              Show welcome again
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="mt-5 flex items-center justify-between rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-4 py-3 text-xs text-[#94A3B8]">
-        <div>
-          Click-through affects only the canvas window.
-          <div className="mt-1 text-[#64748B]">Toolbar stays clickable on any monitor.</div>
-        </div>
+      <div className={`mt-5 flex items-center ${edition.id === "basic" ? "justify-end" : "justify-between"} rounded-2xl border border-[rgba(148,163,184,0.16)] bg-[rgba(15,23,42,0.72)] px-4 py-3 text-xs text-[#94A3B8]`}>
+        {edition.id !== "basic" ? (
+          <div>
+            Click-through affects only the canvas window.
+            <div className="mt-1 text-[#64748B]">
+              Toolbar stays clickable on any monitor.
+            </div>
+          </div>
+        ) : null}
         <button
           type="button"
           className="rounded-xl border border-[rgba(139,92,246,0.3)] bg-[rgba(139,92,246,0.14)] px-3 py-2 font-medium text-[#E9D5FF]"
@@ -1444,6 +1704,7 @@ export function SettingsPanel({
           Reset settings
         </button>
       </div>
+      </>}
     </div>
   );
 }

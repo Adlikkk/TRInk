@@ -153,6 +153,52 @@
 - Release-candidate QA checklist
 - Beta package structure polish for upload review
 
+## v0.3.6
+
+- Window architecture fix for RC blockers
+- Palette and settings promoted to separate Tauri windows (no more window-bounds clipping)
+- Toolbar click-through fix: toolbar always receives pointer events; z-order re-asserted in setup
+- Session notice toasts: compact banner below the toolbar with auto-dismiss
+- Welcome panel moved into settings window; shown on first install only
+- Settings sync broadcasts to all four windows (overlay, toolbar, palette, settings)
+- Toolbar snapshot includes shortcutStatuses for settings window display
+- Tray overlay toggle also hides palette and settings windows
+- Overlay debug bounds card retains all diagnostic fields from v0.3.5
+
+## v0.3.5
+
+- Real Windows RC fix pass
+- Overlay debug bounds mode (canvas CSS size, backing size, DPR, pointer coords)
+- Toolbar quit button (Power icon) for clean process exit
+- Compact shortcut conflict badge ("N conflicts"); full detail in Settings > Keybinds
+- `returnToSelectAfterDraw` setting: auto-return to Select after any structured drawing
+- `overlayDebugBounds`, `returnToSelectAfterDraw`, `checkForUpdates` settings; SETTINGS_VERSION 7
+- `logo-bg.svg` used throughout toolbar, settings, welcome panel, and installer
+- `pnpm assets:installer` script to regenerate NSIS BMPs from SVG using sharp
+- `docs/UPDATER.md`: safe update strategy documentation
+- `quit_app` Tauri command registered and wired to toolbar button
+- Welcome panel text shortened; primary dismiss button renamed
+
+## v0.3.4
+
+- Final Windows RC UX polish pass
+- Installer branding cleanup direction (sidebar less crowded, logo-bg.svg asset added)
+- Welcome panel simplified: shorter text, cleaner layout, reduced window size
+- Toolbar drag handle with visible grip indicator; compact mode removes text label
+- System tray icon wired to app window icon for correct Windows tray display
+- Full-screen overlay coverage: PhysicalPosition/PhysicalSize fix for correct cross-DPI monitor placement
+- Tool interaction recovery: switching tools cancels any in-progress partial drawing
+- `getMonitorPhysicalFrame` utility and expanded monitor-utils tests
+
+## v0.3.3
+
+- Critical startup defaults polish
+- Full-screen overlay monitor coverage fixes
+- Stable toolbar dragging and expanded window sizing for palette/settings
+- Shortcut conflict dedupe in the toolbar UI
+- Branded NSIS installer assets and metadata polish
+- Installed Windows launch without an extra console window
+
 ## v0.2.11
 
 - Save/load/export compatibility hardening
@@ -167,10 +213,56 @@
 - Styled text properties for weight, alignment, background, border, padding, and radius
 - Save/load/export compatibility for styled text objects
 
+## v0.3.8
+
+- Hard RC bugfix pass based on real Windows screenshots
+- Toolbar window widened (compact 760→860 px, normal 920→1040 px) to stop right-side controls clipping
+- Drag/logo handle gets `shrink-0` to prevent collapse and overlap with tool buttons
+- Palette tool routing fix: selecting any drawing tool from palette now auto-exits click-through mode
+- Toolbar z-order re-asserted on every click-through toggle
+- Settings panel five-tab layout (General, Keybinds, Timer, Session, About)
+- NSIS BMP assets rewritten as proper Windows DIB 24-bit BMPs; eliminates warning 5040
+- SETTINGS_VERSION bumped to 8; welcome panel migration for existing users
+
+## v0.3.7
+
+- Final beta package lock for first TradeReality Tools distribution
+- UPDATER.md added to beta release package
+- README and BETA_README expanded with palette/settings workflow, save/load/export, quit, and update behavior
+- RC_CHECKLIST expanded with update-behavior and package-contents sections
+- Docs version stamps aligned across UPDATER.md, COMPATIBILITY.md, SIGNING.md
+- Release manifest and handoff files aligned to 0.3.7
+- No new features; no broker integration, telemetry, cloud sync, or trading automation
+
+## v0.3.9
+
+- Surgical RC fix pass: toolbar clipping and Quit button visibility
+- Conflict badge replaced with amber dot on Settings button — variable-width badge removed
+- Favorite tools capped: compact 6, normal 8 — prevents layout overflow
+- Esc key cancels any in-progress partial drawing on the overlay canvas
+- `cancel-active-drawing` overlay command added to protocol and wired in overlay handler
+
+## v0.3.10
+
+- Core input and overlay bounds fix based on real Windows RC testing
+- First-click race fixed: reactive `setClickThrough` effect so OS flag is set after React commits CSS change
+- Full-screen overlay fixed: `applyMonitorBounds` falls back to first available monitor when `primaryMonitor()` returns null
+- Toolbar drag jitter fixed: pointer capture replaces native `startDragging()`, eliminating the `onMoved` feedback loop
+- Overlay debug bounds panel expanded with wrapper rect, document dimensions, and screen pointer coordinates
+
+## v0.3.11
+
+- Emergency overlay bounds and palette tool routing fix
+- Full-screen canvas: overlay window starts at `0,0`; CSS uses `position: fixed; inset: 0; 100vw/100vh`
+- Palette tool routing: settings-sync race eliminated — toolbar includes correct `defaultMode` on tool select
+- Toolbar drag jitter: RAF throttle on `setPosition` calls eliminates IPC flooding and edge flicker
+- Overlay debug panel: window outer/inner size from Tauri API; yellow corner markers; `isDrawableTool` helper added
+- `setFullscreen(false)` removed from `applyMonitorBounds`; overlay window set `resizable: true`
+
 ## Next
 
 - Actual code signing once a certificate is available
-- TradeReality app/web integration for registered-user downloads
+- TradeReality Tools upload and listing
 - First registered-user beta release through the TradeReality Tools area
 
 ## Later

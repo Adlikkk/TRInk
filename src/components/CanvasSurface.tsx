@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent } from "react";
 import type {
   AndrewsPitchforkPattern,
@@ -18,7 +18,8 @@ import type {
   StructureBreakPattern,
   TextShape,
   TrendPattern,
-  VerticalMarkerShape
+  VerticalMarkerShape,
+  ToolKind
 } from "../types/drawables";
 import type { AppSettings } from "../types/settings";
 import type { DrawingAction, DrawingState } from "../state/drawing-state";
@@ -32,6 +33,7 @@ import { isPointNearDrawable } from "../lib/hit-test";
 import { renderDrawable, renderPreview, renderSelectionOverlay } from "../lib/rendering";
 import { getAnchorHandles, hitTestAnchorHandle, moveDrawable, updateDrawableAnchor } from "../lib/object-editing";
 import { findTopmostDrawableAtPoint, sanitizeDrawable, sanitizeDrawables } from "../lib/drawable-validation";
+import { isScreenPointInsideAnyUiWindowBounds, type UiWindowBounds } from "../lib/ui-window-bounds";
 import {
   DEFAULT_TEXT_ALIGN,
   DEFAULT_TEXT_BACKGROUND_COLOR,
@@ -43,10 +45,21 @@ import {
   DEFAULT_TEXT_PADDING
 } from "../lib/text-drawable";
 
+type DebugWindowInfo = {
+  outerX: number; outerY: number; outerW: number; outerH: number;
+  innerW: number; innerH: number;
+};
+
 type CanvasSurfaceProps = {
   state: DrawingState;
   dispatch: Dispatch<DrawingAction>;
   settings: AppSettings;
+  onViewportChange?: (viewport: { width: number; height: number; pixelRatio: number }) => void;
+  cancelActiveDrawingSignal?: number;
+  debugWindowInfo?: DebugWindowInfo | null;
+  onInteractionEnd?: (type: "cancel" | "commit", tool: ToolKind) => void;
+  uiWindowBounds?: UiWindowBounds[];
+  showPersistentCursorHints?: boolean;
 };
 
 type PointerSession =
@@ -57,7 +70,7 @@ type PointerSession =
     }
   | {
       kind: "shape";
-      tool: "arrow" | "rectangle" | "support_resistance_zone" | "expiry_line";
+      tool: "line" | "arrow" | "rectangle" | "support_resistance_zone" | "expiry_line";
       start: Point;
     }
   | {
@@ -390,7 +403,22 @@ function buildTextDrawable(point: Point, text: string, settings: AppSettings, ex
   };
 }
 
-export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps) {
+function resetToSelect(dispatch: Dispatch<DrawingAction>) {
+  dispatch({ type: "set-tool", tool: "select" });
+  dispatch({ type: "set-tool-mode", mode: "basic" });
+}
+
+export function CanvasSurface({
+  state,
+  dispatch,
+  settings,
+  onViewportChange,
+  cancelActiveDrawingSignal,
+  debugWindowInfo,
+  uiWindowBounds = [],
+  showPersistentCursorHints = false,
+  onInteractionEnd
+}: CanvasSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef<PointerSession | null>(null);
@@ -402,6 +430,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     locked?: boolean;
   } | null>(null);
   const [cursorPoint, setCursorPoint] = useState<Point | null>(null);
+  const [screenPoint, setScreenPoint] = useState<Point | null>(null);
   const [liveDrawables, setLiveDrawables] = useState<Drawable[] | null>(null);
 
   useLayoutEffect(() => {
@@ -418,6 +447,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       canvas.height = height * dpr;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
+      onViewportChange?.({ width, height, pixelRatio: dpr });
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         return;
@@ -425,10 +455,15 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
+    const observer = new ResizeObserver(() => resize());
     resize();
+    observer.observe(wrapper);
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [onViewportChange]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -470,6 +505,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         if (session?.kind === "selection-move" || session?.kind === "selection-anchor") {
           sessionRef.current = null;
           setLiveDrawables(null);
+          onInteractionEnd?.("cancel", "select");
           return;
         }
 
@@ -480,6 +516,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         setLiveDrawables(null);
         setTextDraft(null);
         dispatch({ type: "set-preview", preview: null });
+        onInteractionEnd?.("cancel", "select");
         return;
       }
 
@@ -572,7 +609,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch, settings, state.selectedDrawableId]);
+  }, [dispatch, onInteractionEnd, settings, state.selectedDrawableId, textDraft]);
 
   const getPoint = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -590,10 +627,16 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     dispatch({ type: "set-preview", preview });
   };
 
+  const STAY_ON_TOOL = new Set(["pen", "highlighter", "select", "eraser", "text"]);
+
   const commitDrawable = (drawable: Drawable) => {
     const safeDrawable = sanitizeDrawable(drawable);
     if (safeDrawable) {
       dispatch({ type: "commit", drawable: safeDrawable });
+      onInteractionEnd?.("commit", state.activeTool);
+      if (settings.returnToSelectAfterDraw && !STAY_ON_TOOL.has(state.activeTool)) {
+        dispatch({ type: "set-tool", tool: "select" });
+      }
     }
   };
 
@@ -601,11 +644,44 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     return sanitizeDrawables(drawables.filter((drawable) => !isPointNearDrawable(point, drawable, 14)));
   };
 
-  const cancelSession = () => {
+  const cancelSession = useCallback(() => {
+    const currentTool = sessionRef.current?.kind === "shape" ? sessionRef.current.tool : "select";
     sessionRef.current = null;
     setLiveDrawables(null);
-    previewShape(null);
-  };
+    dispatch({ type: "set-preview", preview: null });
+    onInteractionEnd?.("cancel", currentTool as ToolKind);
+  }, [dispatch, onInteractionEnd]);
+
+  // Cancel any in-progress partial drawing when the user switches tools (e.g. via the toolbar).
+  // Without this, switching from Trend while 2 points are placed leaves a dangling session.
+  const prevToolRef = useRef(state.activeTool);
+  useEffect(() => {
+    const prev = prevToolRef.current;
+    prevToolRef.current = state.activeTool;
+    if (prev !== state.activeTool && sessionRef.current) {
+      sessionRef.current = null;
+      setLiveDrawables(null);
+      dispatch({ type: "set-preview", preview: null });
+    }
+  }, [state.activeTool, dispatch]);
+
+  // Cancel active drawing when an external cancel-active-drawing command is received.
+  useEffect(() => {
+    if (cancelActiveDrawingSignal !== undefined && cancelActiveDrawingSignal > 0) {
+      cancelSession();
+    }
+  }, [cancelActiveDrawingSignal, cancelSession]);
+
+  // Esc key cancels any in-progress partial drawing.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && sessionRef.current) {
+        cancelSession();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cancelSession]);
 
   const startTextDraft = (point: Point, drawable?: TextShape) => {
     setTextDraft({
@@ -621,8 +697,18 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
     );
   };
 
+  const isPointerInsideUiWindow = (event: ReactPointerEvent<HTMLCanvasElement>) =>
+    isScreenPointInsideAnyUiWindowBounds(event.screenX, event.screenY, uiWindowBounds);
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (state.overlayMode === "click-through" || state.hidden) {
+      return;
+    }
+
+    if (isPointerInsideUiWindow(event)) {
+      if (import.meta.env.DEV) {
+        console.log(`[TRInk Basic Input] pointer inside toolbar bounds=true`);
+      }
       return;
     }
 
@@ -649,6 +735,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
 
     const point = getPoint(event);
     setCursorPoint(point);
+    setScreenPoint({ x: event.screenX, y: event.screenY });
 
     if (event.button === 2 && sessionRef.current?.kind === "channel") {
       event.preventDefault();
@@ -761,6 +848,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           createdAt: Date.now()
         });
         break;
+      case "line":
       case "arrow":
       case "rectangle":
       case "support_resistance_zone":
@@ -825,6 +913,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         if (event.button !== 0 || textDraft) {
           return;
         }
+        event.preventDefault();
         sessionRef.current = { kind: "text", point };
         startTextDraft(point);
         break;
@@ -1044,9 +1133,14 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (isPointerInsideUiWindow(event)) {
+      return;
+    }
+
     const session = sessionRef.current;
     const point = getPoint(event);
     setCursorPoint(point);
+    setScreenPoint({ x: event.screenX, y: event.screenY });
 
     if (!session) {
       return;
@@ -1139,6 +1233,15 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             points: [session.start, maybeConstrained],
             expiry: "M5",
             style: buildStyle(settings, { dashed: true }),
+            createdAt: Date.now()
+          });
+        } else if (session.tool === "line") {
+          previewShape({
+            id: "preview-line",
+            type: "line",
+            start: session.start,
+            end: maybeConstrained,
+            style: baseStyle,
             createdAt: Date.now()
           });
         } else {
@@ -1288,6 +1391,10 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (isPointerInsideUiWindow(event)) {
+      return;
+    }
+
     const session = sessionRef.current;
     if (!session) {
       return;
@@ -1295,6 +1402,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
 
     const point = getPoint(event);
     setCursorPoint(point);
+    setScreenPoint({ x: event.screenX, y: event.screenY });
     const style = buildStyle(settings);
 
     switch (session.kind) {
@@ -1312,6 +1420,15 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       case "shape":
         if (state.activeTool === "fvg" && session.tool === "rectangle") {
           commitDrawable(commitFVGDrawable(session.start, point, settings));
+        } else if (session.tool === "line") {
+          commitDrawable({
+            id: createId("line"),
+            type: "line",
+            start: session.start,
+            end: point,
+            style,
+            createdAt: Date.now()
+          });
         } else if (session.tool === "arrow") {
           commitDrawable({
             id: createId("arrow"),
@@ -1409,6 +1526,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       dispatch({ type: "replace-selected-drawable", drawable: nextDrawable });
     } else {
       dispatch({ type: "commit", drawable: nextDrawable });
+      onInteractionEnd?.("commit", "text");
     }
 
     setTextDraft(null);
@@ -1429,6 +1547,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       return;
     }
 
+    event.preventDefault();
     dispatch({ type: "select-drawable", id: hit.id });
     sessionRef.current = null;
     setLiveDrawables(null);
@@ -1510,7 +1629,7 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
         onDoubleClick={handleDoubleClick}
         onContextMenu={(event) => event.preventDefault()}
       />
-      {settings.showCursorHints && cursorPoint ? (
+      {shouldRenderPersistentCursorHint(showPersistentCursorHints, settings.showCursorHints, Boolean(cursorPoint)) && cursorPoint ? (
         <div
           className="pointer-events-none absolute rounded-full border border-slate-700/90 bg-slate-950/92 px-3 py-1 text-[11px] text-slate-200 shadow-overlay"
           style={{
@@ -1519,6 +1638,35 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
           }}
         >
           {hintText}
+        </div>
+      ) : null}
+      {settings.overlayDebugBounds ? (
+        <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-cyan-400/80">
+          {/* Yellow corner markers */}
+          <div className="absolute left-0 top-0 h-5 w-5 border-b-2 border-r-2 border-yellow-400/90" />
+          <div className="absolute right-0 top-0 h-5 w-5 border-b-2 border-l-2 border-yellow-400/90" />
+          <div className="absolute bottom-0 left-0 h-5 w-5 border-r-2 border-t-2 border-yellow-400/90" />
+          <div className="absolute bottom-0 right-0 h-5 w-5 border-l-2 border-t-2 border-yellow-400/90" />
+          <div className="absolute left-2 top-2 rounded-xl bg-[rgba(2,8,23,0.92)] px-3 py-2 font-mono text-[11px] leading-5 text-cyan-300 shadow-lg ring-1 ring-cyan-400/30">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-cyan-400/70">Overlay Debug</div>
+            <div>CSS: {Math.round(window.innerWidth)}×{Math.round(window.innerHeight)}</div>
+            <div>Doc: {document.documentElement.clientWidth}×{document.documentElement.clientHeight}</div>
+            {(() => { const r = wrapperRef.current?.getBoundingClientRect(); return r ? <div>Wrapper: {Math.round(r.left)},{Math.round(r.top)} {Math.round(r.width)}×{Math.round(r.height)}</div> : null; })()}
+            <div>Canvas: {canvasRef.current?.width ?? 0}×{canvasRef.current?.height ?? 0}</div>
+            <div>DPR: {window.devicePixelRatio.toFixed(2)}</div>
+            {debugWindowInfo ? (
+              <>
+                <div className="mt-1 border-t border-cyan-400/20 pt-1" />
+                <div>Win pos: {debugWindowInfo.outerX},{debugWindowInfo.outerY}</div>
+                <div>Win outer: {debugWindowInfo.outerW}×{debugWindowInfo.outerH}</div>
+                <div>Win inner: {debugWindowInfo.innerW}×{debugWindowInfo.innerH}</div>
+              </>
+            ) : null}
+            <div className="mt-1 border-t border-cyan-400/20 pt-1" />
+            <div>Tool: {state.activeTool}</div>
+            {cursorPoint ? <div>Ptr: {cursorPoint.x.toFixed(0)},{cursorPoint.y.toFixed(0)}</div> : null}
+            {screenPoint ? <div>Screen: {screenPoint.x.toFixed(0)},{screenPoint.y.toFixed(0)}</div> : null}
+          </div>
         </div>
       ) : null}
       {textDraft ? (
@@ -1534,11 +1682,12 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
             } else if (event.key === "Escape") {
               setTextDraft(null);
               sessionRef.current = null;
+              onInteractionEnd?.("cancel", "text");
             }
           }}
           rows={3}
           placeholder="Type annotation text"
-          className="absolute min-h-[88px] w-[260px] resize rounded-2xl border border-slate-700/90 bg-slate-950/95 px-3 py-2 text-sm leading-6 text-slate-100 shadow-[0_20px_50px_rgba(2,8,23,0.45)] outline-none"
+          className="pointer-events-auto absolute min-h-[88px] w-[260px] resize rounded-2xl border border-slate-700/90 bg-slate-950/95 px-3 py-2 text-sm leading-6 text-slate-100 shadow-[0_20px_50px_rgba(2,8,23,0.45)] outline-none"
           style={{
             left: textDraft.point.x,
             top: textDraft.point.y,
@@ -1548,4 +1697,12 @@ export function CanvasSurface({ state, dispatch, settings }: CanvasSurfaceProps)
       ) : null}
     </div>
   );
+}
+
+export function shouldRenderPersistentCursorHint(
+  showPersistentCursorHints: boolean,
+  showCursorHintsSetting: boolean,
+  hasCursorPoint: boolean
+) {
+  return showPersistentCursorHints && showCursorHintsSetting && hasCursorPoint;
 }

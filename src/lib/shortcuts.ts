@@ -1,4 +1,5 @@
 import type { ToolKind } from "../types/drawables";
+import type { AppEdition } from "../editions/edition";
 
 export type ShortcutAction =
   | "toggle_overlay"
@@ -291,11 +292,29 @@ export function getShortcutDefinition(action: ShortcutAction) {
   return SHORTCUT_DEFINITIONS.find((definition) => definition.action === action);
 }
 
-export function getShortcutBindingsByCategory(bindings: ShortcutBinding[], category: ShortcutCategory) {
-  const definitions = SHORTCUT_DEFINITIONS.filter((definition) => definition.category === category);
+export function getShortcutBindingsByCategory(bindings: ShortcutBinding[], category: ShortcutCategory, edition: AppEdition) {
+  const definitions = SHORTCUT_DEFINITIONS.filter((definition) => {
+    if (definition.category !== category) return false;
+    if (definition.tool && !edition.visibleToolIds.includes(definition.tool)) return false;
+    return true;
+  });
   return definitions
     .map((definition) => bindings.find((binding) => binding.action === definition.action))
     .filter((binding): binding is ShortcutBinding => Boolean(binding));
+}
+
+export function isShortcutCategoryEnabled(category: ShortcutCategory, edition: AppEdition) {
+  if (category === "timer") {
+    return edition.features.timer;
+  }
+  if (category === "sessions-export") {
+    return edition.features.quickSessionActions || edition.features.annotationExport;
+  }
+  return true;
+}
+
+export function getShortcutCategoryOrderForEdition(edition: AppEdition) {
+  return SHORTCUT_CATEGORY_ORDER.filter((category) => isShortcutCategoryEnabled(category, edition));
 }
 
 export function buildDefaultShortcutBindings(): ShortcutBinding[] {
@@ -570,4 +589,42 @@ export function captureShortcutFromKeyboardEvent(
 
 export function getShortcutStatusMap(statuses: ShortcutRegistrationStatus[]) {
   return new Map(statuses.map((status) => [status.action, status]));
+}
+
+export function collectNewUnavailableShortcuts(
+  statuses: ShortcutRegistrationStatus[],
+  seenKeys: Set<string>
+) {
+  return statuses.filter((status) => {
+    if (status.state !== "unavailable") {
+      return false;
+    }
+
+    const key = `${status.action}:${status.accelerator ?? ""}`;
+    if (seenKeys.has(key)) {
+      return false;
+    }
+
+    seenKeys.add(key);
+    return true;
+  });
+}
+
+export function buildShortcutConflictNotice(
+  statuses: ShortcutRegistrationStatus[],
+  seenKeys: Set<string>
+) {
+  const newConflicts = collectNewUnavailableShortcuts(statuses, seenKeys);
+  if (newConflicts.length === 0) {
+    return null;
+  }
+
+  const firstDefinition = getShortcutDefinition(newConflicts[0].action);
+  return {
+    count: newConflicts.length,
+    message:
+      newConflicts.length === 1
+        ? `Shortcut conflict: ${firstDefinition?.label ?? "Unavailable shortcut"}.`
+        : `${newConflicts.length} shortcuts are unavailable on this system.`
+  };
 }

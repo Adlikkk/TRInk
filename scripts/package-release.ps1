@@ -1,6 +1,8 @@
 param(
+  [ValidateSet("basic", "trading")]
+  [string]$Edition = "trading",
   [ValidateSet("internal", "beta")]
-  [string]$Channel = "internal"
+  [string]$Channel = "beta"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,30 +10,27 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
-$packageJson = Get-Content (Join-Path $repoRoot "package.json") | ConvertFrom-Json
-$version = [string]$packageJson.version
+$editionConfig = Get-Content (Join-Path $repoRoot "config\edition-config.json") | ConvertFrom-Json
+$editionMetadata = $editionConfig.editions.$Edition
+if (-not $editionMetadata) {
+  throw "Edition metadata '$Edition' is missing from config\edition-config.json."
+}
+
+$version = [string]$editionMetadata.version
 $releaseRoot = Join-Path $repoRoot "release"
 $installerDirectory = Join-Path $repoRoot "src-tauri\target\debug\bundle\nsis"
-$preferredInstallerName = "TradeReality Ink_{0}_x64-setup.exe" -f $version
-
-$releaseFolderName =
-  if ($Channel -eq "beta") {
-    "TRInk-$version-beta"
-  } else {
-    "TRInk-$version-internal"
-  }
-
+$editionLabel = [string]$editionMetadata.productName
+$expectedInstallerName = "{0}_{1}_x64-setup.exe" -f $editionMetadata.installerBaseName, $version
+$releaseFolderName = [string]$editionMetadata.releaseFolder
 $releaseFolder = Join-Path $releaseRoot $releaseFolderName
 
-function Find-Installer([string]$directory, [string]$versionValue, [string]$preferredName) {
+function Find-Installer([string]$directory, [string]$expectedName) {
   if (-not (Test-Path -LiteralPath $directory)) {
     return $null
   }
 
   return Get-ChildItem -LiteralPath $directory -File |
-    Where-Object {
-      $_.Name -eq $preferredName -or $_.Name -like ("TradeReality Ink_{0}_*-setup.exe" -f $versionValue)
-    } |
+    Where-Object { $_.Name -eq $expectedName } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 }
@@ -60,26 +59,25 @@ function Copy-ReleaseEntry([hashtable]$entry, [string]$releaseFolderPath) {
 }
 
 $installer = $null
-$retryCount = 12
-$retryDelayMs = 750
-
-for ($attempt = 1; $attempt -le $retryCount; $attempt++) {
-  $installer = Find-Installer -directory $installerDirectory -versionValue $version -preferredName $preferredInstallerName
+for ($attempt = 1; $attempt -le 12; $attempt++) {
+  $installer = Find-Installer -directory $installerDirectory -expectedName $expectedInstallerName
   if ($installer) {
     break
   }
 
-  if ($attempt -lt $retryCount) {
-    Start-Sleep -Milliseconds $retryDelayMs
+  if ($attempt -lt 12) {
+    Start-Sleep -Milliseconds 750
   }
 }
 
 if (-not $installer) {
-  throw "Installer not found in '$installerDirectory' for version '$version' after waiting $([Math]::Round(($retryCount * $retryDelayMs) / 1000, 1))s. Run 'pnpm tauri build --debug' and confirm the NSIS bundle completed successfully."
+  $availableInstallers = if (Test-Path -LiteralPath $installerDirectory) {
+    (Get-ChildItem -LiteralPath $installerDirectory -File | Select-Object -ExpandProperty Name) -join ", "
+  } else {
+    "<missing installer directory>"
+  }
+  throw "Expected installer '$expectedInstallerName' was not found in '$installerDirectory'. Available files: $availableInstallers"
 }
-
-$installerName = $installer.Name
-$installerSource = $installer.FullName
 
 if (Test-Path -LiteralPath $releaseFolder) {
   Remove-Item -LiteralPath $releaseFolder -Recurse -Force
@@ -88,32 +86,45 @@ if (Test-Path -LiteralPath $releaseFolder) {
 New-Item -ItemType Directory -Path $releaseFolder -Force | Out-Null
 
 $commonFiles = @(
-  @{ Source = $installerSource; Destination = $installerName }
-  @{ Source = (Join-Path $repoRoot "README.md"); Destination = "README.md" }
+  @{ Source = $installer.FullName; Destination = $installer.Name }
   @{ Source = (Join-Path $repoRoot "LICENSE.md"); Destination = "LICENSE.md" }
   @{ Source = (Join-Path $repoRoot "PRIVACY.md"); Destination = "PRIVACY.md" }
   @{ Source = (Join-Path $repoRoot "EULA.md"); Destination = "EULA.md" }
-  @{ Source = (Join-Path $repoRoot "RELEASE_NOTES.md"); Destination = "RELEASE_NOTES.md" }
-  @{ Source = (Join-Path $repoRoot "TESTING.md"); Destination = "TESTING.md" }
-  @{ Source = (Join-Path $repoRoot "docs\COMPATIBILITY.md"); Destination = "COMPATIBILITY.md" }
-  @{ Source = (Join-Path $repoRoot "public\logo.svg"); Destination = "logo.svg" }
+  @{ Source = (Join-Path $repoRoot "public\logo-bg.svg"); Destination = "logo-bg.svg" }
+  @{ Source = (Join-Path $repoRoot "docs\EDITIONS.md"); Destination = "EDITIONS.md" }
+  @{ Source = (Join-Path $repoRoot "docs\VERSIONING.md"); Destination = "VERSIONING.md" }
 )
 
-$channelFiles =
-  if ($Channel -eq "beta") {
+$editionFiles =
+  if ($Edition -eq "basic") {
     @(
-      @{ Source = (Join-Path $repoRoot "BETA_README.md"); Destination = "BETA_README.md" }
-      @{ Source = (Join-Path $repoRoot "RC_CHECKLIST.md"); Destination = "RC_CHECKLIST.md" }
-      @{ Source = (Join-Path $repoRoot "docs\SIGNING.md"); Destination = "SIGNING.md" }
-      @{ Source = (Join-Path $repoRoot "tools-handoff"); Destination = "tools-handoff"; IsDirectory = $true }
+      @{ Source = (Join-Path $repoRoot "README_BASIC.md"); Destination = "README_BASIC.md" }
+      @{ Source = (Join-Path $repoRoot "RELEASE_NOTES_BASIC.md"); Destination = "RELEASE_NOTES_BASIC.md" }
+      @{ Source = (Join-Path $repoRoot "TESTING_BASIC.md"); Destination = "TESTING_BASIC.md" }
     )
   } else {
     @(
-      @{ Source = (Join-Path $repoRoot "ROADMAP.md"); Destination = "ROADMAP.md" }
+      @{ Source = (Join-Path $repoRoot "README.md"); Destination = "README.md" }
+      @{ Source = (Join-Path $repoRoot "RC_CHECKLIST.md"); Destination = "RC_CHECKLIST.md" }
+      @{ Source = (Join-Path $repoRoot "RELEASE_NOTES.md"); Destination = "RELEASE_NOTES.md" }
+      @{ Source = (Join-Path $repoRoot "TESTING.md"); Destination = "TESTING.md" }
+      @{ Source = (Join-Path $repoRoot "docs\COMPATIBILITY.md"); Destination = "COMPATIBILITY.md" }
+      @{ Source = (Join-Path $repoRoot "docs\SIGNING.md"); Destination = "SIGNING.md" }
+      @{ Source = (Join-Path $repoRoot "docs\UPDATER.md"); Destination = "UPDATER.md" }
     )
   }
 
-$filesToCopy = @($commonFiles + $channelFiles)
+$channelFiles =
+  if ($Edition -eq "trading" -and $Channel -eq "beta") {
+    @(
+      @{ Source = (Join-Path $repoRoot "BETA_README.md"); Destination = "BETA_README.md" }
+      @{ Source = (Join-Path $repoRoot "tools-handoff"); Destination = "tools-handoff"; IsDirectory = $true }
+    )
+  } else {
+    @()
+  }
+
+$filesToCopy = @($commonFiles + $editionFiles + $channelFiles)
 Require-Files $filesToCopy
 
 foreach ($file in $filesToCopy) {
@@ -131,12 +142,12 @@ $hashLines = Get-ChildItem -LiteralPath $releaseFolder -File -Recurse |
   }
 
 @(
-  "# TRInk $Channel release checksums"
+  "# $editionLabel $Channel release checksums"
   "# Version: $version"
   "# Algorithm: SHA256"
   ""
   $hashLines
 ) | Set-Content -LiteralPath $checksumsPath
 
-Write-Output "Created $Channel release package:"
+Write-Output "Created $Edition $Channel release package:"
 Write-Output $releaseFolder

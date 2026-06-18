@@ -1,6 +1,6 @@
 # TRInk Compatibility Matrix
 
-Version: `0.3.0`
+Version: `0.3.11`
 
 This matrix tracks current compatibility for manual local annotations. `Expiry` is not a user-facing feature. Legacy `expiry_line` data remains compatibility-only for older internal files.
 

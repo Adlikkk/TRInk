@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildShortcutConflictNotice,
   buildDefaultShortcutBindings,
   captureShortcutFromKeyboardEvent,
   formatAcceleratorForDisplay,
@@ -86,5 +87,22 @@ describe("shortcut helpers", () => {
       type: "captured",
       accelerator: "Ctrl+Shift+P"
     });
+  });
+
+  it("dedupes unavailable shortcut notices across a session", () => {
+    const seenKeys = new Set<string>();
+    const statuses = [
+      {
+        action: "toggle_click_through" as const,
+        accelerator: "Ctrl+Shift+X",
+        state: "unavailable" as const
+      }
+    ];
+
+    expect(buildShortcutConflictNotice(statuses, seenKeys)).toEqual({
+      count: 1,
+      message: "Shortcut conflict: Toggle click-through."
+    });
+    expect(buildShortcutConflictNotice(statuses, seenKeys)).toBeNull();
   });
 });

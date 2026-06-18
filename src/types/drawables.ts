@@ -20,6 +20,7 @@ export type ToolKind =
   | "select"
   | "pen"
   | "highlighter"
+  | "line"
   | "arrow"
   | "rectangle"
   | "text"
@@ -54,6 +55,12 @@ export type FreehandStroke = DrawableBase & {
   type: "freehand";
   tool: "pen" | "highlighter";
   points: Point[];
+};
+
+export type LineShape = DrawableBase & {
+  type: "line";
+  start: Point;
+  end: Point;
 };
 
 export type ArrowShape = DrawableBase & {
@@ -198,6 +205,7 @@ export type ZoneShape = DrawableBase & {
 
 export type Drawable =
   | FreehandStroke
+  | LineShape
   | ArrowShape
   | RectangleShape
   | TextShape

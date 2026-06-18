@@ -1,6 +1,6 @@
 # TRInk Install Instructions
 
-1. Download `TradeReality Ink_0.3.2_x64-setup.exe` from the TradeReality Tools area.
+1. Download `TradeReality Ink_0.3.11_x64-setup.exe` from the TradeReality Tools area.
 2. Run the installer and complete the normal Windows install flow.
 3. Launch `TradeReality Ink` from the Start Menu.
 4. On first run, review the short welcome notice and continue.

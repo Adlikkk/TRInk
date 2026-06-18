@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canFavoriteTool,
   getToolMode,
+  isDrawableTool,
   isToolKind,
   normalizeFavoriteTools,
   registerRecentTool,
@@ -33,6 +34,24 @@ describe("tool definitions", () => {
     expect(isToolKind("expiry_line")).toBe(true);
     expect(canFavoriteTool("expiry_line")).toBe(false);
     expect(getToolMode("expiry_line")).toBe("binary");
+  });
+
+  it("isDrawableTool returns false for select and expiry_line, true for all other user tools", () => {
+    expect(isDrawableTool("select")).toBe(false);
+    expect(isDrawableTool("expiry_line")).toBe(false);
+    expect(isDrawableTool("pen")).toBe(true);
+    expect(isDrawableTool("arrow")).toBe(true);
+    expect(isDrawableTool("fibonacci_retracement")).toBe(true);
+    expect(isDrawableTool("fibonacci_fan")).toBe(true);
+    expect(isDrawableTool("andrews_pitchfork")).toBe(true);
+    expect(isDrawableTool("horizontal_line")).toBe(true);
+    expect(isDrawableTool("fvg")).toBe(true);
+    expect(isDrawableTool("bos")).toBe(true);
+    expect(isDrawableTool("choch")).toBe(true);
+    expect(isDrawableTool("call_marker")).toBe(true);
+    expect(isDrawableTool("put_marker")).toBe(true);
+    const nonDrawable = TOOL_DEFINITIONS.filter((t) => !isDrawableTool(t.id));
+    expect(nonDrawable.map((t) => t.id)).toEqual(["select"]);
   });
 
   it("normalizes favorites and recent tools to user-facing entries only", () => {

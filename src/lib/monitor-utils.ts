@@ -14,6 +14,13 @@ export type DesktopBounds = {
   height: number;
 };
 
+export type MonitorFrame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export function createMonitorOptions(monitors: Monitor[], primary: Monitor | null): MonitorOption[] {
   const options: MonitorOption[] = [{ id: "auto", label: "Auto / Primary monitor", monitor: primary }];
 
@@ -37,6 +44,31 @@ export function resolveTargetMonitor(
   return match?.monitor ?? options[0]?.monitor ?? null;
 }
 
+// Returns the monitor frame in logical (CSS) pixels. Use for canvas viewport and UI layout
+// calculations that live inside the overlay window's own coordinate space.
+export function getMonitorFrame(monitor: Monitor): MonitorFrame {
+  const scaleFactor = monitor.scaleFactor || 1;
+  return {
+    x: monitor.position.x / scaleFactor,
+    y: monitor.position.y / scaleFactor,
+    width: monitor.size.width / scaleFactor,
+    height: monitor.size.height / scaleFactor
+  };
+}
+
+// Returns the raw physical pixel position and size of the monitor. Use this for
+// window.setPosition / window.setSize calls so that placement is accurate regardless of
+// which monitor the window happens to be sitting on when the call executes (different
+// DPI contexts cause LogicalPosition math to produce wrong physical coordinates).
+export function getMonitorPhysicalFrame(monitor: Monitor): MonitorFrame {
+  return {
+    x: monitor.position.x,
+    y: monitor.position.y,
+    width: monitor.size.width,
+    height: monitor.size.height
+  };
+}
+
 export function getDesktopBounds(monitors: Monitor[]): DesktopBounds {
   if (monitors.length === 0) {
     return {
@@ -47,13 +79,23 @@ export function getDesktopBounds(monitors: Monitor[]): DesktopBounds {
     };
   }
 
-  const left = Math.min(...monitors.map((monitor) => monitor.workArea.position.x));
-  const top = Math.min(...monitors.map((monitor) => monitor.workArea.position.y));
+  const frames = monitors.map((monitor) => {
+    const scaleFactor = monitor.scaleFactor || 1;
+    return {
+      x: monitor.workArea.position.x / scaleFactor,
+      y: monitor.workArea.position.y / scaleFactor,
+      width: monitor.workArea.size.width / scaleFactor,
+      height: monitor.workArea.size.height / scaleFactor
+    };
+  });
+
+  const left = Math.min(...frames.map((frame) => frame.x));
+  const top = Math.min(...frames.map((frame) => frame.y));
   const right = Math.max(
-    ...monitors.map((monitor) => monitor.workArea.position.x + monitor.workArea.size.width)
+    ...frames.map((frame) => frame.x + frame.width)
   );
   const bottom = Math.max(
-    ...monitors.map((monitor) => monitor.workArea.position.y + monitor.workArea.size.height)
+    ...frames.map((frame) => frame.y + frame.height)
   );
 
   return {

@@ -2,6 +2,8 @@ import type { ToolKind, ToolMode } from "../types/drawables";
 import type { EditablePropertiesPatch, SelectedObjectSummary } from "./object-editing";
 import type { OverlayInteractionMode, TimerPreset, TimerSizeMode } from "../types/settings";
 import type { TimerStatus } from "./timer";
+import type { ShortcutRegistrationStatus } from "./shortcuts";
+import type { UiWindowBounds, UiWindowBoundsSource } from "./ui-window-bounds";
 
 export type TimerSnapshot = {
   visible: boolean;
@@ -43,9 +45,18 @@ export type OverlayCommand =
   | { type: "resume-timer" }
   | { type: "reset-timer" }
   | { type: "update-timer-position"; position: { x: number; y: number } }
-  | { type: "update-timer-style"; size?: TimerSizeMode; opacity?: number };
+  | { type: "update-timer-style"; size?: TimerSizeMode; opacity?: number }
+  | { type: "cancel-active-drawing" }
+  | { type: "activate-basic-pass-mode" }
+  | { type: "activate-basic-edit-mode" }
+  | { type: "complete-basic-drawable"; tool: ToolKind }
+  | { type: "activate-basic-drawable-tool"; tool: ToolKind };
 
 export type ToolbarCommand = { type: "open-settings" };
+
+export type PaletteCommand =
+  | { type: "select-tool"; tool: ToolKind }
+  | { type: "set-tool-mode"; mode: ToolMode };
 
 export type ToolbarSnapshot = {
   activeTool: ToolKind;
@@ -59,9 +70,15 @@ export type ToolbarSnapshot = {
   isDirty: boolean;
   selectedObject: SelectedObjectSummary | null;
   timer: TimerSnapshot;
+  shortcutStatuses: ShortcutRegistrationStatus[];
 };
 
 export type SessionNotice = {
   status: "success" | "error" | "info";
   message: string;
+};
+
+export type UiWindowBoundsPayload = {
+  source: UiWindowBoundsSource;
+  bounds: UiWindowBounds | null;
 };

@@ -1,6 +1,6 @@
 {
   "id": "trink",
-  "name": "TRInk",
+  "name": "TRInk Trading",
   "fullName": "TradeReality Ink",
   "category": "Tools",
   "access": "Registered users",
@@ -14,5 +14,5 @@
     "No telemetry by default",
     "Local sessions and exports only"
   ],
-  "downloadFileName": "TradeReality Ink_0.3.2_x64-setup.exe"
+  "downloadFileName": "TradeReality Ink_0.3.11_x64-setup.exe"
 }

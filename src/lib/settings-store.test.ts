@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToolbarPosition, normalizeSettings } from "./settings-store";
+import { clampToolbarPosition, normalizeSettings, normalizeSettingsForEdition } from "./settings-store";
 import { buildDefaultShortcutBindings } from "./shortcuts";
 
 describe("settings normalization", () => {
@@ -39,9 +39,9 @@ describe("settings normalization", () => {
     expect(normalized.toolbarOpacity).toBe(1);
     expect(normalized.toolbarSize).toBe("compact");
     expect(normalized.favoriteTools).toEqual(["pen"]);
-    expect(normalized.defaultTool).toBe("pen");
+    expect(normalized.defaultTool).toBe("select");
     expect(normalized.toolMode).toBe("basic");
-    expect(normalized.defaultMode).toBe("draw");
+    expect(normalized.defaultMode).toBe("click-through");
     expect(normalized.drawingTargetMonitor).toBe("auto");
     expect(normalized.showCursorHints).toBe(true);
     expect(normalized.showPatternLabels).toBe(true);
@@ -66,7 +66,7 @@ describe("settings normalization", () => {
       recentTools: ["pen", "expiry_line", "arrow"]
     });
 
-    expect(normalized.defaultTool).toBe("pen");
+    expect(normalized.defaultTool).toBe("select");
     expect(normalized.favoriteTools).toEqual(["pen", "arrow"]);
     expect(normalized.recentTools).toEqual(["pen", "arrow"]);
   });
@@ -83,13 +83,29 @@ describe("settings normalization", () => {
       "horizontal_line",
       "fvg"
     ]);
+    expect(normalized.defaultTool).toBe("select");
+    expect(normalized.defaultMode).toBe("click-through");
     expect(normalized.shortcuts).toEqual(buildDefaultShortcutBindings());
     expect(normalized.welcomeDismissed).toBe(false);
+    expect(normalized.overlayDebugBounds).toBe(false);
+    expect(normalized.returnToSelectAfterDraw).toBe(true);
+    expect(normalized.checkForUpdates).toBe(false);
   });
 
   it("preserves first-run dismissal when stored", () => {
     const normalized = normalizeSettings({ welcomeDismissed: true });
     expect(normalized.welcomeDismissed).toBe(true);
+  });
+
+  it("preserves overlayDebugBounds and returnToSelectAfterDraw when stored", () => {
+    const normalized = normalizeSettings({ overlayDebugBounds: true, returnToSelectAfterDraw: false });
+    expect(normalized.overlayDebugBounds).toBe(true);
+    expect(normalized.returnToSelectAfterDraw).toBe(false);
+  });
+
+  it("normalizes invalid overlayDebugBounds back to default", () => {
+    const normalized = normalizeSettings({ overlayDebugBounds: "yes" });
+    expect(normalized.overlayDebugBounds).toBe(false);
   });
 
   it("clamps toolbar position to the visible viewport", () => {
@@ -117,5 +133,61 @@ describe("settings normalization", () => {
       accelerator: null,
       enabled: false
     });
+  });
+
+  it("sanitizes trading-only settings when running the basic edition", () => {
+    const normalized = normalizeSettingsForEdition(
+      {
+        defaultTool: "fvg",
+        favoriteTools: ["fvg", "pen", "trend", "line"],
+        recentTools: ["fvg", "line", "pen"],
+        toolMode: "trading",
+        timerVisible: true,
+        checkForUpdates: true,
+        shortcuts: [
+          { action: "timer_toggle", accelerator: "Ctrl+Shift+1", enabled: true },
+          { action: "save_session", accelerator: "Ctrl+Shift+S", enabled: true }
+        ]
+      },
+      "basic"
+    );
+
+    expect(normalized.defaultTool).toBe("select");
+    expect(normalized.defaultMode).toBe("click-through");
+    expect(normalized.toolMode).toBe("basic");
+    expect(normalized.favoriteTools).toEqual(["pen", "line"]);
+    expect(normalized.recentTools).toEqual(["line", "pen"]);
+    expect(normalized.timerVisible).toBe(false);
+    expect(normalized.checkForUpdates).toBe(false);
+    expect(normalized.shortcuts.find((binding) => binding.action === "timer_toggle")).toMatchObject({
+      accelerator: null,
+      enabled: false
+    });
+    expect(normalized.shortcuts.find((binding) => binding.action === "save_session")).toMatchObject({
+      accelerator: null,
+      enabled: false
+    });
+  });
+
+  it("forces Basic startup back to Select + click-through", () => {
+    const normalized = normalizeSettingsForEdition(
+      {
+        defaultTool: "pen",
+        defaultMode: "draw",
+        toolMode: "trading",
+        showCursorHints: true
+      },
+      "basic"
+    );
+
+    expect(normalized.defaultTool).toBe("select");
+    expect(normalized.defaultMode).toBe("click-through");
+    expect(normalized.toolMode).toBe("basic");
+    expect(normalized.showCursorHints).toBe(false);
+  });
+
+  it("auto-dismisses the welcome card for pre-v8 settings migrations", () => {
+    const normalized = normalizeSettingsForEdition({ settingsVersion: 7, welcomeDismissed: false }, "basic");
+    expect(normalized.welcomeDismissed).toBe(true);
   });
 });

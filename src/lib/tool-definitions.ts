@@ -1,6 +1,7 @@
 import {
   Pointer,
   Minus,
+  Slash,
   ArrowUpRight,
   SeparatorVertical,
   Eraser,
@@ -37,6 +38,7 @@ export type ToolDefinition = {
   label: string;
   mode: ToolMode;
   category: ToolCategory;
+  editions?: ("basic" | "trading")[];
   icon: LucideIcon;
   description: string;
   shortcut?: string;
@@ -72,6 +74,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     icon: Pen,
     description: "Freehand drawing with the current stroke color and width.",
     shortcut: "Ctrl+Shift+P",
+    favoritable: true
+  },
+  {
+    id: "line",
+    label: "Line",
+    mode: "basic",
+    category: "basic",
+    icon: Slash,
+    description: "Two-point straight line for simple screen markup.",
     favoritable: true
   },
   {
@@ -282,6 +293,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 export const DEFAULT_FAVORITE_TOOLS: ToolKind[] = [
   "select",
   "pen",
+  "line",
   "arrow",
   "rectangle",
   "trend",
@@ -328,6 +340,14 @@ export function getToolMode(tool: ToolKind): ToolMode {
 
 export function canFavoriteTool(tool: ToolKind) {
   return getToolDefinition(tool)?.favoritable === true;
+}
+
+// Returns true for every tool that creates or modifies canvas marks and therefore
+// requires the overlay to be in draw mode (click-through disabled) to work.
+// Returns false for select and legacy/internal tools.
+const NON_DRAWING_TOOLS = new Set<ToolKind>(["select", "expiry_line"]);
+export function isDrawableTool(tool: ToolKind): boolean {
+  return isUserFacingTool(tool) && !NON_DRAWING_TOOLS.has(tool);
 }
 
 export function normalizeFavoriteTools(tools: ToolKind[], max = 8) {

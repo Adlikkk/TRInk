@@ -1,8 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TradeReality Ink",
-  "version": "0.3.2",
-  "identifier": "com.tradereality.trink",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
@@ -13,15 +10,17 @@
     "windows": [
       {
         "label": "overlay",
-        "title": "TRInk Overlay",
+        "title": "TRInk Trading Overlay",
         "url": "index.html?window=overlay",
-        "width": 1600,
-        "height": 900,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "fullscreen": false,
         "visible": true,
         "shadow": false,
@@ -29,9 +28,9 @@
       },
       {
         "label": "toolbar",
-        "title": "TRInk Toolbar",
+        "title": "TRInk Trading Toolbar",
         "url": "index.html?window=toolbar",
-        "width": 760,
+        "width": 860,
         "height": 76,
         "decorations": false,
         "transparent": true,
@@ -41,19 +40,74 @@
         "visible": true,
         "shadow": false,
         "focus": false
+      },
+      {
+        "label": "palette",
+        "title": "TRInk Trading Palette",
+        "url": "index.html?window=palette",
+        "width": 420,
+        "height": 720,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "settings",
+        "title": "TRInk Trading Settings",
+        "url": "index.html?window=settings",
+        "width": 700,
+        "height": 720,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false,
+        "focus": false
       }
     ],
     "security": {
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "shortDescription": "Windows-first desktop overlay annotation app",
-    "longDescription": "TradeReality Ink is a local-only desktop annotation overlay for educational chart markup and recording workflows.",
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
     "publisher": "TradeReality",
     "copyright": "Copyright (c) TradeReality",
-    "createUpdaterArtifacts": false
-  }
+    "licenseFile": "installer-assets/EULA.txt",
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "headerImage": "installer-assets/nsis-header.bmp",
+        "sidebarImage": "installer-assets/nsis-sidebar.bmp",
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "TradeReality"
+      }
+    },
+    "shortDescription": "Windows-first desktop overlay annotation app",
+    "longDescription": "TradeReality Ink is a local-only desktop annotation overlay for educational chart markup and recording workflows."
+  },
+  "productName": "TradeReality Ink",
+  "version": "0.3.11",
+  "identifier": "com.tradereality.trink.trading",
+  "mainBinaryName": "trink"
 }

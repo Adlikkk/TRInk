@@ -160,6 +160,7 @@ export function getDrawableBounds(drawable: Drawable): Bounds | null {
     case "freehand":
     case "trend":
       return getPointsBounds(safeDrawable.points);
+    case "line":
     case "arrow":
       return getPointsBounds([safeDrawable.start, safeDrawable.end]);
     case "rectangle":
@@ -237,6 +238,7 @@ export function getAnchorHandles(drawable: Drawable): AnchorHandle[] {
   switch (safeDrawable.type) {
     case "freehand":
       return [];
+    case "line":
     case "arrow":
       return [
         { id: "start", point: safeDrawable.start },
@@ -385,6 +387,7 @@ export function moveDrawable(drawable: Drawable, delta: Point): Drawable {
   switch (drawable.type) {
     case "freehand":
       return { ...drawable, points: drawable.points.map((point) => translatePoint(point, delta)) };
+    case "line":
     case "arrow":
       return {
         ...drawable,
@@ -438,6 +441,7 @@ export function updateDrawableAnchor(drawable: Drawable, anchorId: string, point
   switch (drawable.type) {
     case "freehand":
       return drawable;
+    case "line":
     case "arrow":
       return anchorId === "start" ? { ...drawable, start: point } : { ...drawable, end: point };
     case "rectangle":

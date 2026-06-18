@@ -1,7 +1,14 @@
 export const TOOLBAR_MARGIN = 12;
-export const TOOLBAR_WINDOW_COMPACT_SIZE = { width: 760, height: 76 };
-export const TOOLBAR_WINDOW_NORMAL_SIZE = { width: 920, height: 88 };
-export const TOOLBAR_WINDOW_SETTINGS_HEIGHT = 620;
+export type ToolbarWindowSize = { width: number; height: number };
+export const TOOLBAR_WINDOW_BASIC_COMPACT_SIZE: ToolbarWindowSize = { width: 748, height: 68 };
+export const TOOLBAR_WINDOW_BASIC_COMPACT_NOTICE_SIZE: ToolbarWindowSize = { width: 748, height: 108 };
+export const TOOLBAR_WINDOW_BASIC_NORMAL_SIZE: ToolbarWindowSize = { width: 836, height: 76 };
+export const TOOLBAR_WINDOW_BASIC_NORMAL_NOTICE_SIZE: ToolbarWindowSize = { width: 836, height: 116 };
+export const TOOLBAR_WINDOW_COMPACT_SIZE: ToolbarWindowSize = { width: 860, height: 76 };
+export const TOOLBAR_WINDOW_COMPACT_NOTICE_SIZE: ToolbarWindowSize = { width: 860, height: 116 };
+export const TOOLBAR_WINDOW_NORMAL_SIZE: ToolbarWindowSize = { width: 1040, height: 88 };
+export const TOOLBAR_WINDOW_NORMAL_NOTICE_SIZE: ToolbarWindowSize = { width: 1040, height: 128 };
+export const TOOLBAR_WINDOW_STARTUP_SIZE: ToolbarWindowSize = { width: 560, height: 96 };
 export const TIMER_MARGIN = 16;
 export const TIMER_SIZE_COMPACT = { width: 156, height: 84 };
 export const TIMER_SIZE_NORMAL = { width: 188, height: 100 };

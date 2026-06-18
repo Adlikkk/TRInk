@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OverlayCommand, SessionNotice, ToolbarSnapshot } from "./window-protocol";
+import type { OverlayCommand, SessionNotice, ToolbarSnapshot, UiWindowBoundsPayload } from "./window-protocol";
 
 describe("window protocol", () => {
   it("supports monitor-safe overlay commands", () => {
@@ -52,6 +52,7 @@ describe("window protocol", () => {
       currentSessionName: "Untitled session",
       isDirty: false,
       selectedObject: null,
+      shortcutStatuses: [],
       timer: {
         visible: true,
         status: "idle",
@@ -71,5 +72,21 @@ describe("window protocol", () => {
   it("supports session notices from the overlay", () => {
     const notice: SessionNotice = { status: "success", message: "Session saved." };
     expect(notice.status).toBe("success");
+  });
+
+  it("supports ui window bounds payloads for defensive overlay exclusion", () => {
+    const payload: UiWindowBoundsPayload = {
+      source: "toolbar",
+      bounds: {
+        source: "toolbar",
+        x: 24,
+        y: 24,
+        width: 860,
+        height: 76
+      }
+    };
+
+    expect(payload.source).toBe("toolbar");
+    expect(payload.bounds?.width).toBe(860);
   });
 });

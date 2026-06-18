@@ -1,0 +1,19 @@
+TradeReality Ink (TRInk)
+
+Copyright (c) TradeReality.
+All rights reserved.
+
+This beta build is provided as a local desktop annotation overlay for registered
+TradeReality users. TRInk is not open source.
+
+You may use TRInk for personal trading education, review, and content creation.
+You may not redistribute, rebrand, resell, reverse engineer, or modify and
+redistribute TRInk without written permission from TradeReality.
+
+TRInk does not provide financial advice, trading signals, broker integration,
+trade automation, platform bypasses, telemetry by default, or cloud sync.
+
+Sessions and exports remain local files on the user's device.
+
+See the packaged EULA.md, LICENSE.md, and PRIVACY.md files for the full
+distribution, privacy, and usage terms for this beta release.
